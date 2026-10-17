@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="ASCII"?>
+<model:MDescriptors xmlns:model="http://www.silabs.com/ss/Studio.ecore">
+  <descriptors name="matter_mg24_acme_dishwasher">
+    <properties key="projectCommon.sdkId" value="com.silabs.sdk.stack.sisdk:2026.6.0._1516687018-2141065222"/>
+    <properties key="universalConfig.relativeWorkspacePath" value="../matter_thread_soc_dishwasher_app_freertos.slcw"/>
+    <properties key="universalConfig.generationDirectory" value="../../../../../../../../../../../development/matter-mg24-acme-dishwasher"/>
+    <properties key="universalConfig.toolchainCompatibility" value="iar llvm gcc"/>
+    <properties key="projectCommon.partId" value="mcu.arm.efr32.mg24.efr32mg24b310f1536im48"/>
+    <properties key="projectCommon.boardIds" value="brd2601b:0.0.0.A01"/>
+    <properties key="projectCommon.kitId" value=""/>
+    <properties key="universalConfig.projectTypeIds" value="cmake"/>
+    <properties key="projectCommon.overwriteCopiedSources" value="false"/>
+    <properties key="projectCommon.importModeId" value="COPY"/>
+    <properties key="universalConfig.filteredToolchains" value="iar llvm gcc"/>
+    <properties key="universalConfig.ucProjectCacheState" value="-252586686"/>
+  </descriptors>
+</model:MDescriptors>

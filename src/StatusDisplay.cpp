@@ -1,0 +1,181 @@
+#include "StatusDisplay.h"
+
+#include "AppTask.h"
+#include "LEDWidget.h"
+#include "Ssd1306.h"
+#include "sl_i2c_instances.h"
+
+#include <lib/support/logging/CHIPLogging.h>
+
+#include <stdio.h>
+#include <string.h>
+
+#ifdef SL_CATALOG_SIMPLE_LED_LED1_PRESENT
+#define DISHWASHER_STATE_LED 1
+#else
+#define DISHWASHER_STATE_LED 0
+#endif
+
+namespace {
+LEDWidget sStateLED;
+
+// Only log when something other than the countdown changes, plus a heartbeat while counting down.
+constexpr uint32_t kCountdownLogIntervalS = 30;
+char sLastStatus[128];
+
+Ssd1306 sOled;
+
+// Text rows on the 128x64 panel. The title bar is inverted, 9px tall.
+constexpr int kTitleBarHeight = 9;
+constexpr int kTitleY         = 1;
+constexpr int kModeY          = 14;
+constexpr int kCountdownY     = 16;
+constexpr int kPhaseY         = 34;
+constexpr int kLine6Y         = 44;
+constexpr int kLine7Y         = 54;
+
+void FormatDuration(uint32_t seconds, char * buffer, size_t size)
+{
+    const auto h = static_cast<unsigned>(seconds / 3600);
+    const auto m = static_cast<unsigned>((seconds / 60) % 60);
+    const auto s = static_cast<unsigned>(seconds % 60);
+    if (h > 0)
+    {
+        snprintf(buffer, size, "%u:%02u:%02u", h, m, s);
+    }
+    else
+    {
+        snprintf(buffer, size, "%u:%02u", m, s);
+    }
+}
+
+void DrawTitleBar(const char * left, const char * right)
+{
+    sOled.FillRect(0, 0, Ssd1306::kWidth, kTitleBarHeight, true);
+    sOled.DrawText(1, kTitleY, left, 1, false);
+    if (right != nullptr)
+    {
+        sOled.DrawText(Ssd1306::kWidth - 1 - Ssd1306::TextWidth(right), kTitleY, right, 1, false);
+    }
+}
+
+void DrawDelayedStart(bool hasOptedIn, uint32_t startsIn, const char * modeText, const char * priceText)
+{
+    char countdown[16];
+    FormatDuration(startsIn, countdown, sizeof(countdown));
+
+    // The countdown is large, shrinking if it's hours long.
+    uint8_t scale = 3;
+    while (scale > 1 && Ssd1306::TextWidth(countdown, scale) > Ssd1306::kWidth)
+    {
+        scale--;
+    }
+
+    DrawTitleBar("STARTING IN", hasOptedIn ? "EM" : nullptr);
+    sOled.DrawText((Ssd1306::kWidth - Ssd1306::TextWidth(countdown, scale)) / 2, kCountdownY, countdown, scale);
+    sOled.DrawText(0, kLine6Y, modeText);
+    sOled.DrawText(0, kLine7Y, priceText);
+}
+
+void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText, const char * modeText, const char * phaseText,
+                const char * priceText)
+{
+    char remaining[16] = "";
+    if (timeRemaining > 0)
+    {
+        FormatDuration(timeRemaining, remaining, sizeof(remaining));
+    }
+
+    DrawTitleBar(stateText, remaining[0] != '\0' ? remaining : nullptr);
+
+    const uint8_t modeScale = Ssd1306::TextWidth(modeText, 2) <= Ssd1306::kWidth ? 2 : 1;
+    sOled.DrawText(0, kModeY, modeText, modeScale);
+
+    sOled.DrawText(0, kPhaseY, phaseText);
+    sOled.DrawText(0, kLine6Y, priceText);
+    sOled.DrawText(0, kLine7Y, hasOptedIn ? "EM opt-in" : "EM opt-out");
+}
+} // namespace
+
+StatusDisplay StatusDisplay::sInstance;
+
+void StatusDisplay::Init()
+{
+    sStateLED.Init(DISHWASHER_STATE_LED);
+    // Lets the Silabs base application blink this LED for Identify and factory reset.
+    AppTask::GetAppTask().LinkAppLed(&sStateLED);
+
+    // Starts off, matching the dead front. The display stays blank until TurnOn().
+    sOled.Init(sl_i2c_qwiic_handle);
+}
+
+void StatusDisplay::TurnOn()
+{
+    ChipLogProgress(AppServer, "[display] on");
+    mIsOn = true;
+    sOled.SetPower(true);
+}
+
+void StatusDisplay::TurnOff()
+{
+    ChipLogProgress(AppServer, "[display] off");
+    mIsOn = false;
+    sStateLED.Set(false);
+    sLastStatus[0] = '\0';
+
+    sOled.Clear();
+    sOled.Flush();
+    sOled.SetPower(false);
+}
+
+void StatusDisplay::UpdateDisplay(bool hasOptedIn, bool isProgramSelected, uint32_t startsIn, uint32_t timeRemaining,
+                                  const char * stateText, const char * modeText, const char * phaseText, const char * priceText)
+{
+    if (!mIsOn)
+    {
+        return;
+    }
+
+    char status[sizeof(sLastStatus)];
+    uint32_t countdown = 0;
+
+    sOled.Clear();
+
+    if (isProgramSelected && startsIn > 0)
+    {
+        sStateLED.Blink(100, 100);
+        snprintf(status, sizeof(status), "Starting in | %s | EM %s | %s", modeText, hasOptedIn ? "opt-in" : "opt-out",
+                 priceText);
+        countdown = startsIn;
+        DrawDelayedStart(hasOptedIn, startsIn, modeText, priceText);
+    }
+    else
+    {
+        if (strcmp(stateText, "RUNNING") == 0)
+        {
+            sStateLED.Set(true);
+        }
+        else if (strcmp(stateText, "PAUSED") == 0)
+        {
+            sStateLED.Blink(500, 500);
+        }
+        else
+        {
+            sStateLED.Blink(100, 1900);
+        }
+        snprintf(status, sizeof(status), "%s | %s | %s | EM %s | %s", stateText, modeText, phaseText,
+                 hasOptedIn ? "opt-in" : "opt-out", priceText);
+        countdown = timeRemaining;
+        DrawStatus(hasOptedIn, timeRemaining, stateText, modeText, phaseText, priceText);
+    }
+
+    // Only sends the pages that changed.
+    sOled.Flush();
+
+    bool changed = strcmp(status, sLastStatus) != 0;
+    if (changed || (countdown > 0 && countdown % kCountdownLogIntervalS == 0))
+    {
+        ChipLogProgress(AppServer, "[display] %s | %lus", status, static_cast<unsigned long>(countdown));
+        strncpy(sLastStatus, status, sizeof(sLastStatus));
+    }
+}
