@@ -11,7 +11,7 @@ It is based on the Silicon Labs `matter_thread_soc_dishwasher_app_freertos` samp
 | Endpoint | Device type | Clusters |
 | -------- | ----------- | -------- |
 | 0 | Root Node, OTA Requestor | standard, plus **Time Synchronization** (SetUTCTime only) |
-| 1 | Dishwasher | Identify, Descriptor, Binding, **Operational State** (+ CountdownTime), **Dishwasher Mode**, **On/Off** (DeadFrontBehavior); **Commodity Price** client |
+| 1 | Dishwasher | Identify, Descriptor, Binding, **Operational State** (+ CountdownTime), **Dishwasher Mode**, **On/Off** (DeadFrontBehavior); **Commodity Price** and **Electrical Grid Conditions** clients |
 | 2 | Device Energy Management | Descriptor, **Device Energy Management** (PFR + STA), Device Energy Management Mode |
 
 The data model lives in `config/common/dishwasher-thread-app.zap`. Edit it with the ZAP tool from Simplicity Studio and regenerate.
@@ -22,11 +22,12 @@ The dev kit has two buttons, and the OLED and rotary encoder are wired to its ex
 
 | Control | ESP32 | xG24 Dev Kit |
 | ------- | ----- | ------------ |
-| Power on/off | On/Off button | **BTN1** hold ≥ 1 s |
-| Start / pause / resume | Start button | **BTN1** short press |
+| Power on/off | On/Off button | **BTN1** press |
 | Select program | Rotary encoder | **Encoder** turn, **BTN0** short press (once commissioned), or `dishwasher mode` |
-| Energy management opt-in | Menu (rotary click and turn) | **Encoder** click to open the menu, turn to choose, click to close; or `dishwasher optin on\|off` |
-| Cancel program | Rotary click | **Encoder** click, or `dishwasher cancel` |
+| Start | Start button | **Encoder** click on a program (choosing Now, Cheapest or Greenest), or `dishwasher start` |
+| Pause / resume | Start button | **Encoder** click while running, or `dishwasher start` |
+| Energy management opt-in | Menu (rotary click and turn) | **Encoder** turn to **Settings** and click, turn to choose, click to close; or `dishwasher optin on\|off` |
+| Cancel program | Rotary click | **Encoder** hold ≥ 1 s, or `dishwasher cancel` |
 | Factory reset | Hold On/Off 5 s, then confirm | **BTN0** hold ~6 s (Silabs standard; LEDs blink, release to cancel) |
 | Display | SSD1306 OLED | SH1106 OLED on the expansion header, plus **LED1** and the log (see below) |
 
@@ -88,9 +89,18 @@ A KY-040 style encoder with a push switch. Only EXP10 is otherwise free (EXP5 an
 | + | 3V3 | |
 | GND | GND | |
 
-Each click of the knob selects the next or previous program. Clicking cancels a selected program; otherwise it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it. Turning does nothing while the dishwasher is off or a program is selected.
+With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick and **Settings**. Settings isn't a program: clicking it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it.
 
-The pins, the steps per click (`ROTARY_ENCODER_STEPS_PER_DETENT`, 4 by default; some encoders need 2) and the direction (`ROTARY_ENCODER_REVERSE`) are defines in `include/RotaryEncoder.h`.
+Clicking a program starts it:
+
+- With no price or grid-conditions forecast, it starts straight away.
+- Otherwise a **START** menu offers **Now**, plus **Cheapest** when there's a price forecast and **Greenest** when there's a grid-conditions forecast. Each shows how long it would wait (`+1:30:00`). Turn to choose, click to start, or hold to go back.
+- **Now** starts immediately, and the DEM forecast has no start window, so an energy manager can't move it.
+- **Cheapest** and **Greenest** pick the start, within the next 24 hours, that makes the whole program cheapest or lowest in carbon intensity, from the current value and the forecast. The display counts down to it. If you're opted in, an energy manager can still move it.
+
+While the program waits to start, a click does nothing. While it runs, a click pauses or resumes it. Holding the knob for a second cancels the program at any point.
+
+The pins, the steps per click (`ROTARY_ENCODER_STEPS_PER_DETENT`, 4 by default; some encoders need 2), the long-press time (`ROTARY_ENCODER_LONG_PRESS_MS`, 1000) and the direction (`ROTARY_ENCODER_REVERSE`) are defines in `include/RotaryEncoder.h`.
 
 ### Shell
 
@@ -104,6 +114,7 @@ dishwasher mode next|0|1|2
 dishwasher optin on|off
 dishwasher status
 dishwasher price          # current and forecast electricity price
+dishwasher grid           # current and forecast grid carbon intensity
 ```
 
 ## Building
@@ -162,11 +173,11 @@ chip-tool deviceenergymanagement start-time-adjust-request <matter-epoch-s> 1 0x
 
 ## Device Energy Management
 
-As on the ESP32, starting a program publishes a forecast with one slot per program step: Eco has one 30-minute slot, Chef two and Quick three, each at 3 kW. If you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. The forecast's earliest start is now and its latest end is 24 h away.
+As on the ESP32, starting a program publishes a forecast with one slot per program step: Eco has one 30-minute slot, Chef two and Quick three, each at 3 kW. When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. The same applies to a Cheapest or Greenest start. The forecast's earliest start is now and its latest end is 24 h away. A program started with **Now** on the encoder has no start window, and adjustments are refused.
 
 ## Commodity Price
 
-The dishwasher can read the current electricity price, and the price forecast, from a Commodity Price server such as an Electrical Energy Tariff device ([matter-esp32-electrical-energy-tariff-device](../matter-esp32-electrical-energy-tariff-device)). For now it only shows the price: it appears on the OLED and the `[display]` line, and `dishwasher price` logs the details. Nothing schedules programs from it yet.
+The dishwasher can read the current electricity price, and the price forecast, from a Commodity Price server such as an Electrical Energy Tariff device ([matter-esp32-electrical-energy-tariff-device](../matter-esp32-electrical-energy-tariff-device)). The price appears on the OLED and the `[display]` line, and `dishwasher price` logs the details. When the server has a price forecast, the encoder's **Cheapest** start uses it.
 
 Matter devices can't discover each other, so you tell the dishwasher where the tariff device is with a **Binding**. The tariff device also needs an **ACL** entry that lets the dishwasher read it. With the dishwasher as node `0x05` and the tariff device as node `0x10`, with prices on endpoint 1, both on chip-tool's fabric:
 
@@ -181,6 +192,16 @@ chip-tool binding write binding '[{"node":16,"endpoint":1,"cluster":149}]' 0x05 
 The dishwasher then subscribes to TariffUnit, Currency, CurrentPrice and PriceForecast. If the tariff device restarts, the dishwasher resubscribes automatically. Writing an empty binding list (`'[]'`) stops the subscription.
 
 `PriceForecast` only exists on servers with the **Forecasting (FORE)** feature. The ESP32 tariff device doesn't have it yet, so `dishwasher price` reports "Forecast not supported by server". The SDK's Linux `energy-gateway-app` has a Commodity Price server with forecasts, if you want to test with one.
+
+## Electrical Grid Conditions
+
+The **Greenest** start uses the grid's carbon intensity (gCO2/kWh) from an Electrical Grid Conditions server, found the same way: a binding for cluster 160, and an ACL entry on that server giving the dishwasher View access to cluster 160. A binding write replaces the whole table, so list both bindings together. For example, with the grid conditions on node `0x11`, endpoint 1:
+
+```
+chip-tool binding write binding '[{"node":16,"endpoint":1,"cluster":149},{"node":17,"endpoint":1,"cluster":160}]' 0x05 1
+```
+
+The dishwasher subscribes to CurrentConditions and ForecastConditions. Greenest is only offered when the server has the **Forecasting (FORE)** feature. `dishwasher grid` logs what it has received.
 
 Reading another device needs the Matter read client (`matter_read_client`), which the Silabs build leaves out by default; this project enables it.
 

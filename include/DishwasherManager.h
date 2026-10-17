@@ -1,5 +1,7 @@
 #pragma once
 
+#include "StatusDisplay.h"
+
 #include <app/clusters/operational-state-server/operational-state-server.h>
 #include <app/data-model/Nullable.h>
 #include <lib/core/CHIPError.h>
@@ -20,6 +22,13 @@ public:
 
     static constexpr chip::EndpointId kDishwasherEndpoint = 1;
 
+    enum class StartOption : uint8_t
+    {
+        kNow,
+        kCheapest,
+        kGreenest,
+    };
+
     CHIP_ERROR Init();
 
     // Physical controls
@@ -31,14 +40,18 @@ public:
     void SetEnergyManagementOptIn(bool optIn);
     void HandleWheelTurned(int8_t direction);
     void HandleWheelClicked();
+    void HandleWheelLongPressed();
 
     // Power (driven by the On/Off attribute)
     void TurnOnPower();
     void TurnOffPower();
     bool IsPoweredOn() const { return mIsPoweredOn; }
 
-    // Program control (driven by Operational State commands and the buttons)
+    // Program control (driven by Operational State commands, the encoder and the shell).
+    // StartProgram() is the Matter Start command: when opted in, it waits a minute so an energy
+    // manager can move the start.
     void StartProgram();
+    void StartProgram(StartOption option, uint32_t delayS);
     void StopProgram();
     void PauseProgram();
     void ResumeProgram();
@@ -60,6 +73,11 @@ private:
     static void ProgramTick(chip::System::Layer * layer, void * context);
 
     void ToggleProgram();
+    void BeginProgram(uint32_t delayS, bool canMoveStart);
+    void OpenStartChoice();
+    bool FindCheapestStart(uint32_t & delayS) const;
+    bool FindGreenestStart(uint32_t & delayS) const;
+    uint32_t GetProgramDuration() const;
     void ProgressProgram();
     void EndProgram();
     void UpdateOperationState(OperationalStateEnum state);
@@ -78,7 +96,20 @@ private:
 
     bool mIsProgramSelected = false;
     bool mIsPoweredOn       = false;
-    bool mIsShowingMenu     = false;
+
+    // Whether the DEM forecast offers an energy manager a window to move the start in.
+    bool mCanMoveStart = false;
+
+    StatusDisplay::Screen mScreen = StatusDisplay::Screen::kStatus;
+
+    // The Settings item after the programs on the main view. It isn't a mode, so mMode keeps the
+    // last program.
+    bool mIsSettingsSelected = false;
+
+    StatusDisplay::StartChoice mStartChoices[StatusDisplay::kMaxStartChoices];
+    StartOption mStartOptions[StatusDisplay::kMaxStartChoices];
+    uint8_t mStartChoiceCount    = 0;
+    uint8_t mSelectedStartChoice = 0;
 };
 
 inline DishwasherManager & DishwasherMgr()

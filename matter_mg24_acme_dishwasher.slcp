@@ -105,10 +105,12 @@ include:
       - path: DishwasherDelegates.h
       - path: DishwasherManager.h
       - path: EnergyManagement.h
+      - path: GridConditionsSubscriber.h
       - path: PriceSubscriber.h
       - path: RotaryEncoder.h
       - path: ShellCommands.h
       - path: Ssd1306.h
+      - path: StartPlanner.h
       - path: StatusDisplay.h
       - path: WallClock.h
 
@@ -119,10 +121,12 @@ source:
   - path: src/DishwasherDelegates.cpp
   - path: src/DishwasherManager.cpp
   - path: src/EnergyManagement.cpp
+  - path: src/GridConditionsSubscriber.cpp
   - path: src/PriceSubscriber.cpp
   - path: src/RotaryEncoder.cpp
   - path: src/ShellCommands.cpp
   - path: src/Ssd1306.cpp
+  - path: src/StartPlanner.cpp
   - path: src/StatusDisplay.cpp
   - path: src/WallClock.cpp
 

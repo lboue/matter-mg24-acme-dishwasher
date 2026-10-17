@@ -18,6 +18,39 @@
 class StatusDisplay
 {
 public:
+    enum class Screen : uint8_t
+    {
+        kStatus,      // The normal screen, or the delayed-start countdown
+        kEnergyMenu,  // Opt In / Opt Out, opened from Settings
+        kStartChoice, // Now / Cheapest / Greenest
+    };
+
+    struct StartChoice
+    {
+        const char * label = "";
+        uint32_t delayS    = 0;
+    };
+
+    static constexpr uint8_t kMaxStartChoices = 3;
+
+    struct View
+    {
+        Screen screen           = Screen::kStatus;
+        bool hasOptedIn         = false;
+        bool isProgramSelected  = false;
+        bool isSettingsSelected = false; // The Settings item on the program list, not a program
+        uint32_t startsIn       = 0;
+        uint32_t timeRemaining  = 0;
+        const char * stateText  = "";
+        const char * modeText   = "";
+        const char * phaseText  = "";
+        const char * priceText  = "";
+
+        const StartChoice * startChoices = nullptr;
+        uint8_t startChoiceCount         = 0;
+        uint8_t selectedStartChoice      = 0;
+    };
+
     static StatusDisplay & Instance() { return sInstance; }
 
     void Init();
@@ -25,8 +58,7 @@ public:
     void TurnOn();
     void TurnOff();
 
-    void UpdateDisplay(bool showingMenu, bool hasOptedIn, bool isProgramSelected, uint32_t startsIn, uint32_t timeRemaining,
-                       const char * stateText, const char * modeText, const char * phaseText, const char * priceText);
+    void UpdateDisplay(const View & view);
 
 private:
     static StatusDisplay sInstance;

@@ -34,6 +34,11 @@
 #define ROTARY_ENCODER_STEPS_PER_DETENT 4
 #endif
 
+// How long the knob must be held for a long press.
+#ifndef ROTARY_ENCODER_LONG_PRESS_MS
+#define ROTARY_ENCODER_LONG_PRESS_MS 1000
+#endif
+
 // Swaps the turn direction, if clockwise selects the previous program.
 #ifndef ROTARY_ENCODER_REVERSE
 #define ROTARY_ENCODER_REVERSE 0
@@ -42,7 +47,7 @@
 /**
  * Rotary encoder with push switch, read with GPIO interrupts.
  *
- * Both callbacks run in interrupt context, so they must only hand the event on (e.g. post it to
+ * All callbacks run in interrupt context, so they must only hand the event on (e.g. post it to
  * the app task).
  */
 class RotaryEncoder
@@ -52,5 +57,7 @@ public:
     using TurnCallback  = void (*)(int8_t direction);
     using ClickCallback = void (*)();
 
-    static void Init(TurnCallback onTurn, ClickCallback onClick);
+    // A press shorter than ROTARY_ENCODER_LONG_PRESS_MS is a click, reported on release. Holding
+    // it that long reports a long press instead, as soon as the time is up.
+    static void Init(TurnCallback onTurn, ClickCallback onClick, ClickCallback onLongPress);
 };

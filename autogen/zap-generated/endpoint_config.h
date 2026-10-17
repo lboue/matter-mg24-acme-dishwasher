@@ -517,7 +517,7 @@ const EmberAfGenericClusterFunction chipFuncArrayOnOffServer[] = {\
 // clang-format on
 
 // This is an array of EmberAfCluster structures.
-#define GENERATED_CLUSTER_COUNT 28
+#define GENERATED_CLUSTER_COUNT 29
 // clang-format off
 #define GENERATED_CLUSTERS { \
   { \
@@ -846,6 +846,19 @@ const EmberAfGenericClusterFunction chipFuncArrayOnOffServer[] = {\
       .eventCount = 0, \
     },\
   { \
+      /* Endpoint: 1, Cluster: Electrical Grid Conditions (client) */ \
+      .clusterId = 0x000000A0, \
+      .attributes = ZAP_ATTRIBUTE_INDEX(206), \
+      .attributeCount = 0, \
+      .clusterSize = 0, \
+      .mask = ZAP_CLUSTER_MASK(CLIENT), \
+      .functions = NULL, \
+      .acceptedCommandList = nullptr, \
+      .generatedCommandList = nullptr, \
+      .eventList = nullptr, \
+      .eventCount = 0, \
+    },\
+  { \
       /* Endpoint: 2, Cluster: Descriptor (server) */ \
       .clusterId = 0x0000001D, \
       .attributes = ZAP_ATTRIBUTE_INDEX(206), \
@@ -893,8 +906,8 @@ const EmberAfGenericClusterFunction chipFuncArrayOnOffServer[] = {\
 // This is an array of EmberAfEndpointType structures.
 #define GENERATED_ENDPOINT_TYPES { \
   { ZAP_CLUSTER_INDEX(0), 18, 53 }, \
-  { ZAP_CLUSTER_INDEX(18), 7, 13 }, \
-  { ZAP_CLUSTER_INDEX(25), 3, 4 }, \
+  { ZAP_CLUSTER_INDEX(18), 8, 13 }, \
+  { ZAP_CLUSTER_INDEX(26), 3, 4 }, \
 }
 
 

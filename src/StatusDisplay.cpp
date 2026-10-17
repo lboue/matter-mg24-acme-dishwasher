@@ -78,7 +78,7 @@ void DrawDelayedStart(bool hasOptedIn, uint32_t startsIn, const char * modeText,
 }
 
 void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText, const char * modeText, const char * phaseText,
-                const char * priceText)
+                const char * priceText, const char * hint)
 {
     char remaining[16] = "";
     if (timeRemaining > 0)
@@ -93,7 +93,7 @@ void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText,
 
     sOled.DrawText(0, kPhaseY, phaseText);
     sOled.DrawText(0, kLine6Y, priceText);
-    sOled.DrawText(0, kLine7Y, hasOptedIn ? "EM opt-in" : "EM opt-out");
+    sOled.DrawText(0, kLine7Y, hint != nullptr ? hint : (hasOptedIn ? "EM opt-in" : "EM opt-out"));
 }
 
 // Draws one menu choice in a box, inverted when selected.
@@ -129,6 +129,40 @@ void DrawMenu(bool hasOptedIn)
 
     sOled.DrawText(0, kLine7Y, "turn: set click: exit");
 }
+
+// One row per choice, with its delay at the right. The selected row is inverted.
+void DrawStartChoice(const StatusDisplay::StartChoice * choices, uint8_t count, uint8_t selected)
+{
+    constexpr int kFirstRowY = 14;
+    constexpr int kRowHeight = 11;
+
+    DrawTitleBar("START", nullptr);
+
+    for (uint8_t i = 0; i < count; i++)
+    {
+        const int y     = kFirstRowY + i * kRowHeight;
+        const bool isOn = i != selected;
+        char delay[16]  = "";
+        if (i == selected)
+        {
+            sOled.FillRect(0, y - 1, Ssd1306::kWidth, Ssd1306::kCharHeight + 2, true);
+        }
+        sOled.DrawText(2, y, choices[i].label, 1, isOn);
+
+        if (choices[i].delayS > 0)
+        {
+            delay[0] = '+';
+            FormatDuration(choices[i].delayS, delay + 1, sizeof(delay) - 1);
+        }
+        else if (i > 0)
+        {
+            snprintf(delay, sizeof(delay), "now");
+        }
+        sOled.DrawText(Ssd1306::kWidth - 2 - Ssd1306::TextWidth(delay), y, delay, 1, isOn);
+    }
+
+    sOled.DrawText(0, kLine7Y, "click:start hold:back");
+}
 } // namespace
 
 StatusDisplay StatusDisplay::sInstance;
@@ -162,8 +196,7 @@ void StatusDisplay::TurnOff()
     sOled.SetPower(false);
 }
 
-void StatusDisplay::UpdateDisplay(bool showingMenu, bool hasOptedIn, bool isProgramSelected, uint32_t startsIn, uint32_t timeRemaining,
-                                  const char * stateText, const char * modeText, const char * phaseText, const char * priceText)
+void StatusDisplay::UpdateDisplay(const View & view)
 {
     if (!mIsOn)
     {
@@ -173,28 +206,35 @@ void StatusDisplay::UpdateDisplay(bool showingMenu, bool hasOptedIn, bool isProg
     char status[sizeof(sLastStatus)];
     uint32_t countdown = 0;
 
+    const char * optInText = view.hasOptedIn ? "opt-in" : "opt-out";
+
     sOled.Clear();
 
-    if (showingMenu)
+    if (view.screen == Screen::kEnergyMenu)
     {
-        snprintf(status, sizeof(status), "MENU | EM %s", hasOptedIn ? "opt-in" : "opt-out");
-        DrawMenu(hasOptedIn);
+        snprintf(status, sizeof(status), "MENU | EM %s", optInText);
+        DrawMenu(view.hasOptedIn);
     }
-    else if (isProgramSelected && startsIn > 0)
+    else if (view.screen == Screen::kStartChoice)
+    {
+        snprintf(status, sizeof(status), "START | %s | %s", view.modeText,
+                 view.startChoices[view.selectedStartChoice].label);
+        DrawStartChoice(view.startChoices, view.startChoiceCount, view.selectedStartChoice);
+    }
+    else if (view.isProgramSelected && view.startsIn > 0)
     {
         sStateLED.Blink(100, 100);
-        snprintf(status, sizeof(status), "Starting in | %s | EM %s | %s", modeText, hasOptedIn ? "opt-in" : "opt-out",
-                 priceText);
-        countdown = startsIn;
-        DrawDelayedStart(hasOptedIn, startsIn, modeText, priceText);
+        snprintf(status, sizeof(status), "Starting in | %s | EM %s | %s", view.modeText, optInText, view.priceText);
+        countdown = view.startsIn;
+        DrawDelayedStart(view.hasOptedIn, view.startsIn, view.modeText, view.priceText);
     }
     else
     {
-        if (strcmp(stateText, "RUNNING") == 0)
+        if (strcmp(view.stateText, "RUNNING") == 0)
         {
             sStateLED.Set(true);
         }
-        else if (strcmp(stateText, "PAUSED") == 0)
+        else if (strcmp(view.stateText, "PAUSED") == 0)
         {
             sStateLED.Blink(500, 500);
         }
@@ -202,10 +242,13 @@ void StatusDisplay::UpdateDisplay(bool showingMenu, bool hasOptedIn, bool isProg
         {
             sStateLED.Blink(100, 1900);
         }
-        snprintf(status, sizeof(status), "%s | %s | %s | EM %s | %s", stateText, modeText, phaseText,
-                 hasOptedIn ? "opt-in" : "opt-out", priceText);
-        countdown = timeRemaining;
-        DrawStatus(hasOptedIn, timeRemaining, stateText, modeText, phaseText, priceText);
+
+        const char * modeText = view.isSettingsSelected ? "Settings" : view.modeText;
+        snprintf(status, sizeof(status), "%s | %s | %s | EM %s | %s", view.stateText, modeText, view.phaseText, optInText,
+                 view.priceText);
+        countdown = view.timeRemaining;
+        DrawStatus(view.hasOptedIn, view.timeRemaining, view.stateText, modeText, view.phaseText, view.priceText,
+                   view.isSettingsSelected ? "click to open" : nullptr);
     }
 
     // Only sends the pages that changed.

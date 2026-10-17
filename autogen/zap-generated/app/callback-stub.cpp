@@ -52,6 +52,11 @@ void __attribute__((weak)) emberAfDishwasherModeClusterInitCallback(EndpointId e
     // To prevent warning
     (void) endpoint;
 }
+void __attribute__((weak)) emberAfElectricalGridConditionsClusterInitCallback(EndpointId endpoint)
+{
+    // To prevent warning
+    (void) endpoint;
+}
 void __attribute__((weak)) emberAfGeneralCommissioningClusterInitCallback(EndpointId endpoint)
 {
     // To prevent warning

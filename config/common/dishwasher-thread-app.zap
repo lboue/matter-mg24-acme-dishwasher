@@ -5297,6 +5297,14 @@
           "define": "COMMODITY_PRICE_CLUSTER",
           "side": "client",
           "enabled": 1
+        },
+        {
+          "name": "Electrical Grid Conditions",
+          "code": 160,
+          "mfgCode": null,
+          "define": "ELECTRICAL_GRID_CONDITIONS_CLUSTER",
+          "side": "client",
+          "enabled": 1
         }
       ]
     },

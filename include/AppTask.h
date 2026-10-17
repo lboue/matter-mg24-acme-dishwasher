@@ -38,12 +38,13 @@
  *   BTN0 short press   Next program (when commissioned), plus the usual Silabs behaviour:
  *                      open the commissioning window if not commissioned, and log the QR code
  *   BTN0 hold 6s       Factory reset (Silabs standard; replaces the ESP32 reset prompt)
- *   BTN1 short press   Start / pause / resume
- *   BTN1 hold 1s       Power on / off
- *   Encoder turn       Next / previous program, or opt in / out while the menu is open
- *   Encoder click      Cancel the selected program, otherwise open / close the Energy Mgr menu
+ *   BTN1 press         Power on / off
+ *   Encoder turn       Move through the programs and Settings, or the options on a menu
+ *   Encoder click      Settings: open / close the Energy Mgr menu. Program: start it, asking
+ *                      Now / Cheapest / Greenest when there's a forecast. Running: pause / resume
+ *   Encoder hold 1s    Stop the program, or leave a menu
  *
- * Energy management opt-in and cancel are also on the `dishwasher` shell command.
+ * Start, cancel and energy management opt-in are also on the `dishwasher` shell command.
  */
 class AppTask : public BaseApplication
 {
@@ -61,6 +62,7 @@ public:
     static void EncoderClockwiseHandler(AppEvent * aEvent);
     static void EncoderCounterClockwiseHandler(AppEvent * aEvent);
     static void EncoderClickHandler(AppEvent * aEvent);
+    static void EncoderLongPressHandler(AppEvent * aEvent);
 
 private:
     static AppTask sAppTask;

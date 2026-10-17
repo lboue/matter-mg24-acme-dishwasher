@@ -3,6 +3,7 @@
 #ifdef ENABLE_CHIP_SHELL
 
 #include "DishwasherManager.h"
+#include "GridConditionsSubscriber.h"
 #include "PriceSubscriber.h"
 #include "WallClock.h"
 
@@ -148,6 +149,50 @@ CHIP_ERROR PriceHandler(int argc, char ** argv)
     });
 }
 
+void LogConditions(const char * label, const GridConditionsSubscriber::Conditions & conditions)
+{
+    ChipLogProgress(AppServer, "  %s %lu..%lu %d gCO2/kWh", label, static_cast<unsigned long>(conditions.periodStart),
+                    static_cast<unsigned long>(conditions.periodEnd), conditions.gridCarbonIntensity);
+}
+
+CHIP_ERROR GridHandler(int argc, char ** argv)
+{
+    return RunOnMatterThread([] {
+        auto & grid = GridConditionsSubscriber::Instance();
+        if (!grid.IsBound())
+        {
+            ChipLogProgress(AppServer, "No Electrical Grid Conditions binding. Bind with: "
+                                       "chip-tool binding write binding '[{\"node\":<grid>,\"endpoint\":<ep>,\"cluster\":160}]' "
+                                       "<dishwasher> 1");
+            return;
+        }
+
+        GridConditionsSubscriber::Conditions current;
+        if (grid.GetCurrentConditions(current))
+        {
+            ChipLogProgress(AppServer, "Current grid conditions, times in Matter epoch seconds:");
+            LogConditions("now ", current);
+        }
+        else
+        {
+            ChipLogProgress(AppServer, "Current grid conditions unknown");
+        }
+
+        if (!grid.IsForecastSupported())
+        {
+            ChipLogProgress(AppServer, "Forecast not supported by server");
+            return;
+        }
+
+        auto forecast = grid.GetForecast();
+        ChipLogProgress(AppServer, "Forecast (%u entries):", static_cast<unsigned>(forecast.size()));
+        for (const auto & entry : forecast)
+        {
+            LogConditions("fcst", entry);
+        }
+    });
+}
+
 CHIP_ERROR DishwasherCommandHandler(int argc, char ** argv)
 {
     if (argc == 0)
@@ -170,6 +215,7 @@ void RegisterDishwasherShellCommands()
         { &OptInHandler, "optin", "Energy management opt-in: on|off" },
         { &StatusHandler, "status", "Log the current state" },
         { &PriceHandler, "price", "Log the current and forecast electricity price" },
+        { &GridHandler, "grid", "Log the current and forecast grid carbon intensity" },
     };
 
     static const shell_command_t sDishwasherCommand = { &DishwasherCommandHandler, "dishwasher",

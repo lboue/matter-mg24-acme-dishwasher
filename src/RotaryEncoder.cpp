@@ -12,7 +12,8 @@ extern "C" {
 
 namespace {
 
-constexpr uint32_t kClickDebounceMs = 200;
+// Contact bounce gives several edges per press, so the switch is read once it has been still this long.
+constexpr uint32_t kSwitchSettleMs = 30;
 
 const sl_gpio_t kClk = { ROTARY_ENCODER_CLK_PORT, ROTARY_ENCODER_CLK_PIN };
 const sl_gpio_t kDt  = { ROTARY_ENCODER_DT_PORT, ROTARY_ENCODER_DT_PIN };
@@ -27,10 +28,15 @@ constexpr uint8_t kRestState = 0b11;
 
 RotaryEncoder::TurnCallback sOnTurn;
 RotaryEncoder::ClickCallback sOnClick;
+RotaryEncoder::ClickCallback sOnLongPress;
 
 uint8_t sState;
 int8_t sSteps;
-uint32_t sLastClickTick;
+
+sl_sleeptimer_timer_handle_t sSettleTimer;
+sl_sleeptimer_timer_handle_t sLongPressTimer;
+bool sIsPressed;
+bool sLongPressFired;
 
 // Stands in for the Silabs status LED, whose pin the switch now uses.
 sl_status_t NoLedInit(void *)
@@ -75,22 +81,42 @@ void OnRotation(uint8_t, void *)
     }
 }
 
-void OnSwitch(uint8_t, void *)
+void OnLongPress(sl_sleeptimer_timer_handle_t *, void *)
 {
-    // Pressed pulls the line low. Contact bounce gives several edges per press.
-    if (Read(kSw))
+    if (sIsPressed)
     {
+        sLongPressFired = true;
+        sOnLongPress();
+    }
+}
+
+void OnSwitchSettled(sl_sleeptimer_timer_handle_t *, void *)
+{
+    // Pressed pulls the line low.
+    const bool pressed = !Read(kSw);
+    if (pressed == sIsPressed)
+    {
+        return;
+    }
+    sIsPressed = pressed;
+
+    if (pressed)
+    {
+        sLongPressFired = false;
+        sl_sleeptimer_start_timer_ms(&sLongPressTimer, ROTARY_ENCODER_LONG_PRESS_MS, OnLongPress, nullptr, 0, 0);
         return;
     }
 
-    const uint32_t now     = sl_sleeptimer_get_tick_count();
-    const uint32_t elapsed = (now - sLastClickTick) * 1000u / sl_sleeptimer_get_timer_frequency();
-    if (elapsed < kClickDebounceMs)
+    sl_sleeptimer_stop_timer(&sLongPressTimer);
+    if (!sLongPressFired)
     {
-        return;
+        sOnClick();
     }
-    sLastClickTick = now;
-    sOnClick();
+}
+
+void OnSwitch(uint8_t, void *)
+{
+    sl_sleeptimer_restart_timer_ms(&sSettleTimer, kSwitchSettleMs, OnSwitchSettled, nullptr, 0, 0);
 }
 
 void ConfigureInput(const sl_gpio_t & gpio, sl_gpio_interrupt_flag_t flags, sl_gpio_irq_callback_t callback)
@@ -107,10 +133,11 @@ void ConfigureInput(const sl_gpio_t & gpio, sl_gpio_interrupt_flag_t flags, sl_g
 
 } // namespace
 
-void RotaryEncoder::Init(TurnCallback onTurn, ClickCallback onClick)
+void RotaryEncoder::Init(TurnCallback onTurn, ClickCallback onClick, ClickCallback onLongPress)
 {
-    sOnTurn  = onTurn;
-    sOnClick = onClick;
+    sOnTurn      = onTurn;
+    sOnClick     = onClick;
+    sOnLongPress = onLongPress;
 
     // The Silabs base application looks this up on every status LED update. Without this, its
     // writes would switch the switch pin's pull-up to a pull-down and fake clicks.
@@ -118,7 +145,7 @@ void RotaryEncoder::Init(TurnCallback onTurn, ClickCallback onClick)
 
     ConfigureInput(kClk, SL_GPIO_INTERRUPT_RISING_FALLING_EDGE, OnRotation);
     ConfigureInput(kDt, SL_GPIO_INTERRUPT_RISING_FALLING_EDGE, OnRotation);
-    ConfigureInput(kSw, SL_GPIO_INTERRUPT_FALLING_EDGE, OnSwitch);
+    ConfigureInput(kSw, SL_GPIO_INTERRUPT_RISING_FALLING_EDGE, OnSwitch);
 
     sState = ReadState();
 

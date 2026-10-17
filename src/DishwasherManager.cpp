@@ -9,7 +9,9 @@
 
 #include "DishwasherDelegates.h"
 #include "EnergyManagement.h"
+#include "GridConditionsSubscriber.h"
 #include "PriceSubscriber.h"
+#include "StartPlanner.h"
 #include "StatusDisplay.h"
 #include "WallClock.h"
 
@@ -32,6 +34,15 @@ constexpr uint32_t kOptimisationDelayS = 60;
 
 constexpr uint32_t kSlotDurationS = 30 * 60;
 constexpr int64_t kSlotPowerMw    = 3'000'000;
+
+// How far ahead a program may be moved, matching the forecast's latestEndTime.
+constexpr uint32_t kStartHorizonS = 86400;
+
+using Screen = StatusDisplay::Screen;
+
+// The current period plus the forecast, for StartPlanner. Only used on the Matter thread.
+StartPlanner::Period sPlannerPeriods[1 + PriceSubscriber::kMaxForecastEntries];
+static_assert(PriceSubscriber::kMaxForecastEntries >= GridConditionsSubscriber::kMaxForecastEntries);
 
 // Track this separately as the forecast struct only holds a list view onto the slots.
 DeviceEnergyManagement::Structs::SlotStruct::Type sSlots[3];
@@ -131,15 +142,49 @@ void DishwasherManager::HandleWheelTurned(int8_t direction)
         return;
     }
 
-    if (mIsShowingMenu)
+    if (mScreen == Screen::kEnergyMenu)
     {
         // Opt Out is on the left of the menu and Opt In on the right.
         SetEnergyManagementOptIn(direction > 0);
         return;
     }
 
+    if (mScreen == Screen::kStartChoice)
+    {
+        const int next = mSelectedStartChoice + direction;
+        if (next >= 0 && next < mStartChoiceCount)
+        {
+            mSelectedStartChoice = static_cast<uint8_t>(next);
+            UpdateDishwasherDisplay();
+        }
+        return;
+    }
+
+    if (mIsProgramSelected)
+    {
+        return;
+    }
+
+    // The programs, then Settings.
     constexpr uint8_t modeCount = DishwasherMode::DishwasherModeDelegate::kModeCount;
-    SelectMode(static_cast<uint8_t>((mMode + modeCount + direction) % modeCount));
+    constexpr uint8_t itemCount = modeCount + 1;
+    const uint8_t current       = mIsSettingsSelected ? modeCount : mMode;
+    const uint8_t next          = static_cast<uint8_t>((current + itemCount + direction) % itemCount);
+
+    if (next == modeCount)
+    {
+        mIsSettingsSelected = true;
+        UpdateDishwasherDisplay();
+    }
+    else if (next == mMode)
+    {
+        mIsSettingsSelected = false;
+        UpdateDishwasherDisplay();
+    }
+    else
+    {
+        SelectMode(next);
+    }
 }
 
 void DishwasherManager::HandleWheelClicked()
@@ -150,14 +195,163 @@ void DishwasherManager::HandleWheelClicked()
         return;
     }
 
-    if (mIsProgramSelected)
+    if (mScreen == Screen::kEnergyMenu)
     {
-        StopProgram();
+        mScreen = Screen::kStatus;
+        UpdateDishwasherDisplay();
         return;
     }
 
-    mIsShowingMenu = !mIsShowingMenu;
+    if (mScreen == Screen::kStartChoice)
+    {
+        StartProgram(mStartOptions[mSelectedStartChoice], mStartChoices[mSelectedStartChoice].delayS);
+        return;
+    }
+
+    if (mIsProgramSelected)
+    {
+        if (mDelayedStartTimeRemaining > 0)
+        {
+            ChipLogProgress(AppServer, "Waiting to start; hold the knob to cancel");
+        }
+        else if (mState == OperationalStateEnum::kRunning)
+        {
+            PauseProgram();
+        }
+        else if (mState == OperationalStateEnum::kPaused)
+        {
+            ResumeProgram();
+        }
+        return;
+    }
+
+    if (mIsSettingsSelected)
+    {
+        mScreen = Screen::kEnergyMenu;
+        UpdateDishwasherDisplay();
+        return;
+    }
+
+    OpenStartChoice();
+}
+
+void DishwasherManager::HandleWheelLongPressed()
+{
+    if (!mIsPoweredOn)
+    {
+        return;
+    }
+
+    if (mScreen != Screen::kStatus)
+    {
+        mScreen = Screen::kStatus;
+        UpdateDishwasherDisplay();
+        return;
+    }
+
+    if (mIsProgramSelected)
+    {
+        StopProgram();
+    }
+}
+
+void DishwasherManager::OpenStartChoice()
+{
+    mStartChoiceCount    = 0;
+    mSelectedStartChoice = 0;
+
+    auto addChoice = [this](StartOption option, const char * label, uint32_t delayS) {
+        mStartOptions[mStartChoiceCount] = option;
+        mStartChoices[mStartChoiceCount] = { label, delayS };
+        mStartChoiceCount++;
+    };
+
+    addChoice(StartOption::kNow, "Now", 0);
+
+    uint32_t delayS = 0;
+    if (FindCheapestStart(delayS))
+    {
+        addChoice(StartOption::kCheapest, "Cheapest", delayS);
+    }
+    if (FindGreenestStart(delayS))
+    {
+        addChoice(StartOption::kGreenest, "Greenest", delayS);
+    }
+
+    // Nothing to choose between.
+    if (mStartChoiceCount == 1)
+    {
+        StartProgram(StartOption::kNow, 0);
+        return;
+    }
+
+    mScreen = Screen::kStartChoice;
     UpdateDishwasherDisplay();
+}
+
+uint32_t DishwasherManager::GetProgramDuration() const
+{
+    // 30, 60 or 90 minutes.
+    return kSlotDurationS + (mMode * kSlotDurationS);
+}
+
+bool DishwasherManager::FindCheapestStart(uint32_t & delayS) const
+{
+    const auto & prices = PriceSubscriber::Instance();
+    uint32_t now        = 0;
+    if (!prices.IsForecastSupported() || prices.GetForecast().empty() || !WallClock::Instance().GetMatterEpochSeconds(now))
+    {
+        return false;
+    }
+
+    size_t count = 0;
+    auto add     = [&count](const PriceSubscriber::PriceInfo & info) {
+        if (info.hasPrice)
+        {
+            sPlannerPeriods[count++] = { info.periodStart, info.periodEnd, info.price };
+        }
+    };
+
+    PriceSubscriber::PriceInfo current;
+    if (prices.GetCurrentPrice(current))
+    {
+        add(current);
+    }
+    for (const auto & entry : prices.GetForecast())
+    {
+        add(entry);
+    }
+
+    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), now, GetProgramDuration(),
+                                       kStartHorizonS, delayS);
+}
+
+bool DishwasherManager::FindGreenestStart(uint32_t & delayS) const
+{
+    const auto & grid = GridConditionsSubscriber::Instance();
+    uint32_t now      = 0;
+    if (!grid.IsForecastSupported() || grid.GetForecast().empty() || !WallClock::Instance().GetMatterEpochSeconds(now))
+    {
+        return false;
+    }
+
+    size_t count = 0;
+    auto add     = [&count](const GridConditionsSubscriber::Conditions & conditions) {
+        sPlannerPeriods[count++] = { conditions.periodStart, conditions.periodEnd, conditions.gridCarbonIntensity };
+    };
+
+    GridConditionsSubscriber::Conditions current;
+    if (grid.GetCurrentConditions(current))
+    {
+        add(current);
+    }
+    for (const auto & entry : grid.GetForecast())
+    {
+        add(entry);
+    }
+
+    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), now, GetProgramDuration(),
+                                       kStartHorizonS, delayS);
 }
 
 void DishwasherManager::SetEnergyManagementOptIn(bool optIn)
@@ -184,8 +378,8 @@ void DishwasherManager::TurnOnPower()
 
 void DishwasherManager::TurnOffPower()
 {
-    mIsPoweredOn   = false;
-    mIsShowingMenu = false;
+    mIsPoweredOn = false;
+    mScreen      = Screen::kStatus;
     StopProgram();
     StatusDisplay::Instance().TurnOff();
 }
@@ -212,22 +406,39 @@ void DishwasherManager::ToggleProgram()
 
 void DishwasherManager::StartProgram()
 {
+    BeginProgram(mOptedIntoEnergyManagement ? kOptimisationDelayS : 0, mOptedIntoEnergyManagement);
+}
+
+void DishwasherManager::StartProgram(StartOption option, uint32_t delayS)
+{
+    if (option == StartOption::kNow)
+    {
+        // Now means now: no window for an energy manager to move it in.
+        BeginProgram(0, false);
+        return;
+    }
+
+    ChipLogProgress(AppServer, "Starting at the %s time, in %lus", option == StartOption::kCheapest ? "cheapest" : "greenest",
+                    static_cast<unsigned long>(delayS));
+    BeginProgram(delayS, mOptedIntoEnergyManagement);
+}
+
+void DishwasherManager::BeginProgram(uint32_t delayS, bool canMoveStart)
+{
     if (mIsProgramSelected)
     {
         ChipLogProgress(AppServer, "A program has already been started");
         return;
     }
 
-    mIsProgramSelected = true;
-    mIsShowingMenu     = false;
+    mIsProgramSelected  = true;
+    mIsSettingsSelected = false;
+    mScreen             = Screen::kStatus;
+    mCanMoveStart       = canMoveStart;
 
-    // 30 minutes in seconds = 1800
-    // 60 minutes in seconds = 3600
-    // 90 minutes in seconds = 5400
-    mRunningTimeRemaining = kSlotDurationS + (mMode * kSlotDurationS);
-    mPhase                = 0;
-
-    mDelayedStartTimeRemaining = mOptedIntoEnergyManagement ? kOptimisationDelayS : 0;
+    mRunningTimeRemaining      = GetProgramDuration();
+    mPhase                     = 0;
+    mDelayedStartTimeRemaining = delayS;
 
     SetForecast();
     UpdateDishwasherDisplay();
@@ -237,6 +448,8 @@ CHIP_ERROR DishwasherManager::AdjustStartTime(uint32_t newStartTime)
 {
     VerifyOrReturnError(mOptedIntoEnergyManagement, CHIP_ERROR_INCORRECT_STATE,
                         ChipLogError(AppServer, "Not opted into energy management, ignoring start time adjustment"));
+    VerifyOrReturnError(mCanMoveStart, CHIP_ERROR_INCORRECT_STATE,
+                        ChipLogError(AppServer, "Program was started now, ignoring start time adjustment"));
 
     // Once the program has started we can't move it.
     VerifyOrReturnError(mIsProgramSelected && mState == OperationalStateEnum::kStopped && mDelayedStartTimeRemaining > 0,
@@ -272,6 +485,7 @@ void DishwasherManager::ResumeProgram()
 void DishwasherManager::StopProgram()
 {
     mIsProgramSelected         = false;
+    mCanMoveStart              = false;
     mDelayedStartTimeRemaining = 0;
     mRunningTimeRemaining      = 0;
     UpdateCurrentPhase(0);
@@ -382,7 +596,14 @@ void DishwasherManager::UpdateOperationState(OperationalStateEnum state)
 
 void DishwasherManager::UpdateMode(uint8_t mode)
 {
-    mMode = mode;
+    mMode               = mode;
+    mIsSettingsSelected = false;
+
+    // The chooser's delays were worked out for the old program.
+    if (mScreen == Screen::kStartChoice)
+    {
+        mScreen = Screen::kStatus;
+    }
     UpdateDishwasherDisplay();
 }
 
@@ -402,7 +623,7 @@ void DishwasherManager::SetForecast()
     sForecastStruct.startTime            = now + mDelayedStartTimeRemaining;
     sForecastStruct.endTime              = now + mDelayedStartTimeRemaining + mRunningTimeRemaining;
 
-    if (mOptedIntoEnergyManagement)
+    if (mCanMoveStart)
     {
         sForecastStruct.earliestStartTime.SetValue(DataModel::MakeNullable(now));
         sForecastStruct.latestEndTime.SetValue(now + 86400 /* 24 hours */);
@@ -488,7 +709,20 @@ void DishwasherManager::UpdateDishwasherDisplay()
     char priceBuffer[40];
     PriceSubscriber::Instance().FormatCurrentPrice(priceBuffer, sizeof(priceBuffer));
 
-    StatusDisplay::Instance().UpdateDisplay(mIsShowingMenu, mOptedIntoEnergyManagement, mIsProgramSelected,
-                                            mDelayedStartTimeRemaining, mRunningTimeRemaining, stateText, modeBuffer,
-                                            phaseBuffer, priceBuffer);
+    StatusDisplay::View view;
+    view.screen              = mScreen;
+    view.hasOptedIn          = mOptedIntoEnergyManagement;
+    view.isProgramSelected   = mIsProgramSelected;
+    view.isSettingsSelected  = mIsSettingsSelected;
+    view.startsIn            = mDelayedStartTimeRemaining;
+    view.timeRemaining       = mRunningTimeRemaining;
+    view.stateText           = stateText;
+    view.modeText            = modeBuffer;
+    view.phaseText           = phaseBuffer;
+    view.priceText           = priceBuffer;
+    view.startChoices        = mStartChoices;
+    view.startChoiceCount    = mStartChoiceCount;
+    view.selectedStartChoice = mSelectedStartChoice;
+
+    StatusDisplay::Instance().UpdateDisplay(view);
 }

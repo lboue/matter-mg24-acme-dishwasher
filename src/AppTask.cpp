@@ -23,6 +23,7 @@
 #include "AppEvent.h"
 #include "DishwasherManager.h"
 #include "EnergyManagement.h"
+#include "GridConditionsSubscriber.h"
 #include "PriceSubscriber.h"
 #include "RotaryEncoder.h"
 #include "ShellCommands.h"
@@ -43,7 +44,6 @@ namespace {
 constexpr uint64_t kLongPressMs = 1000;
 
 uint64_t sFunctionPressedAtMs = 0;
-uint64_t sControlPressedAtMs  = 0;
 
 uint64_t NowMs()
 {
@@ -73,6 +73,11 @@ void EncoderClicked()
 {
     PostEncoderEvent(AppTask::EncoderClickHandler);
 }
+
+void EncoderLongPressed()
+{
+    PostEncoderEvent(AppTask::EncoderLongPressHandler);
+}
 } // namespace
 
 AppTask AppTask::sAppTask;
@@ -80,7 +85,7 @@ AppTask AppTask::sAppTask;
 CHIP_ERROR AppTask::AppInit()
 {
     GetPlatform().SetButtonsCb(AppTask::ButtonEventHandler);
-    RotaryEncoder::Init(EncoderTurned, EncoderClicked);
+    RotaryEncoder::Init(EncoderTurned, EncoderClicked, EncoderLongPressed);
 
     PlatformMgr().LockChipStack();
 
@@ -94,6 +99,7 @@ CHIP_ERROR AppTask::AppInit()
     if (err == CHIP_NO_ERROR)
     {
         PriceSubscriber::Instance().Init();
+        GridConditionsSubscriber::Instance().Init();
     }
 
     PlatformMgr().UnlockChipStack();
@@ -192,25 +198,12 @@ void AppTask::FunctionButtonHandler(AppEvent * aEvent)
 
 void AppTask::ControlButtonHandler(AppEvent * aEvent)
 {
-    if (IsPressed(aEvent))
-    {
-        sControlPressedAtMs = NowMs();
-        return;
-    }
-
     if (aEvent->ButtonEvent.Action != static_cast<uint8_t>(SilabsPlatform::ButtonAction::ButtonReleased))
     {
         return;
     }
 
-    if (NowMs() - sControlPressedAtMs >= kLongPressMs)
-    {
-        TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandlePowerButton(); });
-    }
-    else
-    {
-        TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleStartButton(); });
-    }
+    TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandlePowerButton(); });
 }
 
 void AppTask::EncoderClockwiseHandler(AppEvent *)
@@ -226,4 +219,9 @@ void AppTask::EncoderCounterClockwiseHandler(AppEvent *)
 void AppTask::EncoderClickHandler(AppEvent *)
 {
     TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleWheelClicked(); });
+}
+
+void AppTask::EncoderLongPressHandler(AppEvent *)
+{
+    TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleWheelLongPressed(); });
 }

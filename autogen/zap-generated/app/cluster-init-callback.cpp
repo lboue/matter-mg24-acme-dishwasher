@@ -40,6 +40,9 @@ void emberAfClusterInitCallback(EndpointId endpoint, ClusterId clusterId)
      case  app::Clusters::DishwasherMode::Id:
         emberAfDishwasherModeClusterInitCallback(endpoint);
         break;
+     case  app::Clusters::ElectricalGridConditions::Id:
+        emberAfElectricalGridConditionsClusterInitCallback(endpoint);
+        break;
      case  app::Clusters::GeneralCommissioning::Id:
         emberAfGeneralCommissioningClusterInitCallback(endpoint);
         break;
