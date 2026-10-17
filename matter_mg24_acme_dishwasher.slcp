@@ -106,6 +106,7 @@ include:
       - path: DishwasherManager.h
       - path: EnergyManagement.h
       - path: PriceSubscriber.h
+      - path: RotaryEncoder.h
       - path: ShellCommands.h
       - path: Ssd1306.h
       - path: StatusDisplay.h
@@ -119,6 +120,7 @@ source:
   - path: src/DishwasherManager.cpp
   - path: src/EnergyManagement.cpp
   - path: src/PriceSubscriber.cpp
+  - path: src/RotaryEncoder.cpp
   - path: src/ShellCommands.cpp
   - path: src/Ssd1306.cpp
   - path: src/StatusDisplay.cpp

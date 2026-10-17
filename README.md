@@ -18,19 +18,19 @@ The data model lives in `config/common/dishwasher-thread-app.zap`. Edit it with 
 
 ## Hardware
 
-The dev kit has only two buttons, so the ESP32's rotary encoder and three buttons map onto it like this. The OLED is the same module, wired to the expansion header (see [Display](#display)).
+The dev kit has two buttons, and the OLED and rotary encoder are wired to its expansion header (see [Display](#display) and [Rotary encoder](#rotary-encoder)). The ESP32's controls map onto it like this:
 
 | Control | ESP32 | xG24 Dev Kit |
 | ------- | ----- | ------------ |
 | Power on/off | On/Off button | **BTN1** hold ≥ 1 s |
 | Start / pause / resume | Start button | **BTN1** short press |
-| Select program | Rotary encoder | **BTN0** short press (once commissioned), or `dishwasher mode` |
-| Energy management opt-in | Menu (rotary click and turn) | `dishwasher optin on\|off` |
-| Cancel program | Rotary click | `dishwasher cancel` |
+| Select program | Rotary encoder | **Encoder** turn, **BTN0** short press (once commissioned), or `dishwasher mode` |
+| Energy management opt-in | Menu (rotary click and turn) | **Encoder** click to open the menu, turn to choose, click to close; or `dishwasher optin on\|off` |
+| Cancel program | Rotary click | **Encoder** click, or `dishwasher cancel` |
 | Factory reset | Hold On/Off 5 s, then confirm | **BTN0** hold ~6 s (Silabs standard; LEDs blink, release to cancel) |
-| Display | SSD1306 OLED | SSD1306 OLED on the expansion header, plus **LED1** and the log (see below) |
+| Display | SSD1306 OLED | SH1106 OLED on the expansion header, plus **LED1** and the log (see below) |
 
-BTN0 keeps its usual Silabs behaviour: a short press before commissioning opens the commissioning window and prints the QR code. LED0 is the usual Silabs network status LED.
+BTN0 keeps its usual Silabs behaviour: a short press before commissioning opens the commissioning window and prints the QR code. LED0 (red) no longer shows the Silabs network status, because the encoder's switch uses its pin.
 
 LED1 shows the dishwasher state:
 
@@ -75,6 +75,22 @@ If the display doesn't respond at boot, the log shows `[oled] no ACK from displa
 | `SSD1306_SH1106` | `1` | `0` for 0.96" SSD1306 modules; the 1.3" modules use an SH1106 |
 
 The I2C pins and the 400 kHz bus speed are in `config/sl_i2c_qwiic_config.h`. The driver uses the SDK's `i2c` component rather than I2CSPM, whose transfers can block for 5 minutes with interrupts off when the bus is stuck. Most OLED breakouts have I2C pull-ups on board. If yours doesn't, add 4.7 kΩ pull-ups to 3V3. The on-board sensors share PC04/PC05 and stay unpowered. If the bus looks stuck, try powering them with `SL_BOARD_ENABLE_SENSOR_RHT 1` in `config/sl_board_control_config.h`.
+
+### Rotary encoder
+
+A KY-040 style encoder with a push switch. Only EXP10 is otherwise free (EXP5 and EXP7 aren't connected), so two of its lines share pins with the RGB LED:
+
+| Encoder | xG24 Dev Kit | Shared with |
+| ------- | ------------ | ----------- |
+| CLK | EXP10 (PA07) | — |
+| DT | EXP9 (PB00) | Blue LED (unused); it lights as the knob turns |
+| SW | EXP13 (PD02) | Red LED, formerly the network status LED; it lights while the knob is pressed |
+| + | 3V3 | |
+| GND | GND | |
+
+Each click of the knob selects the next or previous program. Clicking cancels a selected program; otherwise it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it. Turning does nothing while the dishwasher is off or a program is selected.
+
+The pins, the steps per click (`ROTARY_ENCODER_STEPS_PER_DETENT`, 4 by default; some encoders need 2) and the direction (`ROTARY_ENCODER_REVERSE`) are defines in `include/RotaryEncoder.h`.
 
 ### Shell
 

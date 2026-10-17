@@ -33,15 +33,17 @@
 #define APP_ERROR_STOP_TIMER_FAILED CHIP_APPLICATION_ERROR(0x06)
 
 /**
- * Buttons on the xG24 Dev Kit (the ESP32 version had two buttons and a rotary encoder):
+ * Controls on the xG24 Dev Kit (the ESP32 version had two buttons and a rotary encoder):
  *
  *   BTN0 short press   Next program (when commissioned), plus the usual Silabs behaviour:
  *                      open the commissioning window if not commissioned, and log the QR code
  *   BTN0 hold 6s       Factory reset (Silabs standard; replaces the ESP32 reset prompt)
  *   BTN1 short press   Start / pause / resume
  *   BTN1 hold 1s       Power on / off
+ *   Encoder turn       Next / previous program, or opt in / out while the menu is open
+ *   Encoder click      Cancel the selected program, otherwise open / close the Energy Mgr menu
  *
- * Energy management opt-in and cancel are on the `dishwasher` shell command.
+ * Energy management opt-in and cancel are also on the `dishwasher` shell command.
  */
 class AppTask : public BaseApplication
 {
@@ -55,6 +57,10 @@ public:
     CHIP_ERROR StartAppTask();
 
     static void ButtonEventHandler(uint8_t button, uint8_t btnAction);
+
+    static void EncoderClockwiseHandler(AppEvent * aEvent);
+    static void EncoderCounterClockwiseHandler(AppEvent * aEvent);
+    static void EncoderClickHandler(AppEvent * aEvent);
 
 private:
     static AppTask sAppTask;

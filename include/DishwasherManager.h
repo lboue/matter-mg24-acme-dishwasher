@@ -29,6 +29,8 @@ public:
     void SelectMode(uint8_t mode);
     void SelectNextMode();
     void SetEnergyManagementOptIn(bool optIn);
+    void HandleWheelTurned(int8_t direction);
+    void HandleWheelClicked();
 
     // Power (driven by the On/Off attribute)
     void TurnOnPower();
@@ -76,6 +78,7 @@ private:
 
     bool mIsProgramSelected = false;
     bool mIsPoweredOn       = false;
+    bool mIsShowingMenu     = false;
 };
 
 inline DishwasherManager & DishwasherMgr()

@@ -124,6 +124,42 @@ void DishwasherManager::SelectNextMode()
     SelectMode(static_cast<uint8_t>((mMode + 1) % DishwasherMode::DishwasherModeDelegate::kModeCount));
 }
 
+void DishwasherManager::HandleWheelTurned(int8_t direction)
+{
+    if (!mIsPoweredOn)
+    {
+        return;
+    }
+
+    if (mIsShowingMenu)
+    {
+        // Opt Out is on the left of the menu and Opt In on the right.
+        SetEnergyManagementOptIn(direction > 0);
+        return;
+    }
+
+    constexpr uint8_t modeCount = DishwasherMode::DishwasherModeDelegate::kModeCount;
+    SelectMode(static_cast<uint8_t>((mMode + modeCount + direction) % modeCount));
+}
+
+void DishwasherManager::HandleWheelClicked()
+{
+    if (!mIsPoweredOn)
+    {
+        ChipLogProgress(AppServer, "Dishwasher is off, cannot handle wheel click");
+        return;
+    }
+
+    if (mIsProgramSelected)
+    {
+        StopProgram();
+        return;
+    }
+
+    mIsShowingMenu = !mIsShowingMenu;
+    UpdateDishwasherDisplay();
+}
+
 void DishwasherManager::SetEnergyManagementOptIn(bool optIn)
 {
     mOptedIntoEnergyManagement = optIn;
@@ -148,7 +184,8 @@ void DishwasherManager::TurnOnPower()
 
 void DishwasherManager::TurnOffPower()
 {
-    mIsPoweredOn = false;
+    mIsPoweredOn   = false;
+    mIsShowingMenu = false;
     StopProgram();
     StatusDisplay::Instance().TurnOff();
 }
@@ -182,6 +219,7 @@ void DishwasherManager::StartProgram()
     }
 
     mIsProgramSelected = true;
+    mIsShowingMenu     = false;
 
     // 30 minutes in seconds = 1800
     // 60 minutes in seconds = 3600
@@ -450,6 +488,7 @@ void DishwasherManager::UpdateDishwasherDisplay()
     char priceBuffer[40];
     PriceSubscriber::Instance().FormatCurrentPrice(priceBuffer, sizeof(priceBuffer));
 
-    StatusDisplay::Instance().UpdateDisplay(mOptedIntoEnergyManagement, mIsProgramSelected, mDelayedStartTimeRemaining,
-                                            mRunningTimeRemaining, stateText, modeBuffer, phaseBuffer, priceBuffer);
+    StatusDisplay::Instance().UpdateDisplay(mIsShowingMenu, mOptedIntoEnergyManagement, mIsProgramSelected,
+                                            mDelayedStartTimeRemaining, mRunningTimeRemaining, stateText, modeBuffer,
+                                            phaseBuffer, priceBuffer);
 }

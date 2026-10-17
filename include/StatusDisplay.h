@@ -25,7 +25,7 @@ public:
     void TurnOn();
     void TurnOff();
 
-    void UpdateDisplay(bool hasOptedIn, bool isProgramSelected, uint32_t startsIn, uint32_t timeRemaining,
+    void UpdateDisplay(bool showingMenu, bool hasOptedIn, bool isProgramSelected, uint32_t startsIn, uint32_t timeRemaining,
                        const char * stateText, const char * modeText, const char * phaseText, const char * priceText);
 
 private:

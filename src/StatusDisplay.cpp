@@ -95,6 +95,40 @@ void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText,
     sOled.DrawText(0, kLine6Y, priceText);
     sOled.DrawText(0, kLine7Y, hasOptedIn ? "EM opt-in" : "EM opt-out");
 }
+
+// Draws one menu choice in a box, inverted when selected.
+void DrawMenuOption(int x, const char * text, bool selected)
+{
+    constexpr int kPadding = 3;
+    const int width        = Ssd1306::TextWidth(text) + 2 * kPadding;
+    const int height       = Ssd1306::kCharHeight + 2 * kPadding;
+    const int y            = kModeY + 8;
+
+    if (selected)
+    {
+        sOled.FillRect(x, y, width, height, true);
+    }
+    else
+    {
+        sOled.FillRect(x, y, width, 1, true);
+        sOled.FillRect(x, y + height - 1, width, 1, true);
+        sOled.FillRect(x, y, 1, height, true);
+        sOled.FillRect(x + width - 1, y, 1, height, true);
+    }
+    sOled.DrawText(x + kPadding, y + kPadding, text, 1, !selected);
+}
+
+void DrawMenu(bool hasOptedIn)
+{
+    DrawTitleBar("ENERGY MGR", nullptr);
+
+    // Opt Out on the left and Opt In on the right, matching the turn direction.
+    DrawMenuOption(4, "Opt Out", !hasOptedIn);
+    const int optInWidth = Ssd1306::TextWidth("Opt In") + 6;
+    DrawMenuOption(Ssd1306::kWidth - 4 - optInWidth, "Opt In", hasOptedIn);
+
+    sOled.DrawText(0, kLine7Y, "turn: set click: exit");
+}
 } // namespace
 
 StatusDisplay StatusDisplay::sInstance;
@@ -128,7 +162,7 @@ void StatusDisplay::TurnOff()
     sOled.SetPower(false);
 }
 
-void StatusDisplay::UpdateDisplay(bool hasOptedIn, bool isProgramSelected, uint32_t startsIn, uint32_t timeRemaining,
+void StatusDisplay::UpdateDisplay(bool showingMenu, bool hasOptedIn, bool isProgramSelected, uint32_t startsIn, uint32_t timeRemaining,
                                   const char * stateText, const char * modeText, const char * phaseText, const char * priceText)
 {
     if (!mIsOn)
@@ -141,7 +175,12 @@ void StatusDisplay::UpdateDisplay(bool hasOptedIn, bool isProgramSelected, uint3
 
     sOled.Clear();
 
-    if (isProgramSelected && startsIn > 0)
+    if (showingMenu)
+    {
+        snprintf(status, sizeof(status), "MENU | EM %s", hasOptedIn ? "opt-in" : "opt-out");
+        DrawMenu(hasOptedIn);
+    }
+    else if (isProgramSelected && startsIn > 0)
     {
         sStateLED.Blink(100, 100);
         snprintf(status, sizeof(status), "Starting in | %s | EM %s | %s", modeText, hasOptedIn ? "opt-in" : "opt-out",

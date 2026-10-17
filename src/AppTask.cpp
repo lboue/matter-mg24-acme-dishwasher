@@ -24,6 +24,7 @@
 #include "DishwasherManager.h"
 #include "EnergyManagement.h"
 #include "PriceSubscriber.h"
+#include "RotaryEncoder.h"
 #include "ShellCommands.h"
 #include "WallClock.h"
 
@@ -53,6 +54,25 @@ bool IsPressed(const AppEvent * aEvent)
 {
     return aEvent->ButtonEvent.Action == static_cast<uint8_t>(SilabsPlatform::ButtonAction::ButtonPressed);
 }
+
+// The encoder callbacks run in interrupt context, so they only post to the app task.
+void PostEncoderEvent(EventHandler handler)
+{
+    AppEvent event = {};
+    event.Type     = AppEvent::kEventType_Button;
+    event.Handler  = handler;
+    AppTask::GetAppTask().PostEvent(&event);
+}
+
+void EncoderTurned(int8_t direction)
+{
+    PostEncoderEvent(direction > 0 ? AppTask::EncoderClockwiseHandler : AppTask::EncoderCounterClockwiseHandler);
+}
+
+void EncoderClicked()
+{
+    PostEncoderEvent(AppTask::EncoderClickHandler);
+}
 } // namespace
 
 AppTask AppTask::sAppTask;
@@ -60,6 +80,7 @@ AppTask AppTask::sAppTask;
 CHIP_ERROR AppTask::AppInit()
 {
     GetPlatform().SetButtonsCb(AppTask::ButtonEventHandler);
+    RotaryEncoder::Init(EncoderTurned, EncoderClicked);
 
     PlatformMgr().LockChipStack();
 
@@ -190,4 +211,19 @@ void AppTask::ControlButtonHandler(AppEvent * aEvent)
     {
         TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleStartButton(); });
     }
+}
+
+void AppTask::EncoderClockwiseHandler(AppEvent *)
+{
+    TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleWheelTurned(1); });
+}
+
+void AppTask::EncoderCounterClockwiseHandler(AppEvent *)
+{
+    TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleWheelTurned(-1); });
+}
+
+void AppTask::EncoderClickHandler(AppEvent *)
+{
+    TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleWheelClicked(); });
 }
