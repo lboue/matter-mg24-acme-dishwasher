@@ -52,7 +52,7 @@ public:
     /** e.g. "24.567 GBP/kWh". */
     void FormatPrice(int64_t price, char * buffer, size_t size) const;
 
-    /** The current price for the status line, or "no price". */
+    /** The current price for the status line, or "No pricing available". */
     void FormatCurrentPrice(char * buffer, size_t size) const;
 
     // ReadClient::Callback

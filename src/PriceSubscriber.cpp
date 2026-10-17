@@ -302,7 +302,7 @@ void PriceSubscriber::FormatCurrentPrice(char * buffer, size_t size) const
 {
     if (!mHasCurrentPrice || !mCurrentPrice.hasPrice)
     {
-        snprintf(buffer, size, "%s", IsBound() ? "price unknown" : "no price");
+        snprintf(buffer, size, "%s", IsBound() ? "Price unknown" : "No pricing available");
         return;
     }
     FormatPrice(mCurrentPrice.price, buffer, size);
