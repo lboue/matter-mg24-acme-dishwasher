@@ -10,7 +10,7 @@ It is based on the Silicon Labs `matter_thread_soc_dishwasher_app_freertos` samp
 
 | Endpoint | Device type | Clusters |
 | -------- | ----------- | -------- |
-| 0 | Root Node, OTA Requestor | standard, plus **Time Synchronization** (SetUTCTime only) |
+| 0 | Root Node, OTA Requestor | standard, plus **Time Synchronization** (SetUTCTime, and TSC: reads the time from a trusted time source) |
 | 1 | Dishwasher | Identify, Descriptor, Binding, **Operational State** (+ CountdownTime), **Dishwasher Mode**, **On/Off** (DeadFrontBehavior); **Commodity Price** and **Electrical Grid Conditions** clients |
 | 2 | Device Energy Management | Descriptor, **Device Energy Management** (PFR + STA), Device Energy Management Mode |
 
@@ -24,7 +24,7 @@ The dev kit has two buttons, and the OLED and rotary encoder are wired to its ex
 | ------- | ----- | ------------ |
 | Power on/off | On/Off button | **BTN1** press |
 | Select program | Rotary encoder | **Encoder** turn, **BTN0** short press (once commissioned), or `dishwasher mode` |
-| Start | Start button | **Encoder** click on a program (choosing Now, Cheapest or Greenest), or `dishwasher start` |
+| Start | Start button | **Encoder** click on a program (choosing Now or Smart), or `dishwasher start` |
 | Pause / resume | Start button | **Encoder** click while running, or `dishwasher start` |
 | Energy management opt-in | Menu (rotary click and turn) | **Encoder**: **Settings** → **Energy Mgmt**, turn to choose, click to apply; or `dishwasher optin on\|off` |
 | Share with another controller | — | **Encoder**: **Settings** → **Commissioning** shows the QR and manual pairing codes |
@@ -94,16 +94,16 @@ With the dishwasher on and no program started, turning the knob moves through Ec
 
 - **Commissioning** opens the commissioning window, so you can add the dishwasher to another Matter controller (multi-admin). The page shows the QR code and the 11-digit manual pairing code. A click closes the window and goes back. The page also goes back by itself when the window closes, after 15 minutes or once a controller has finished commissioning.
 - **Energy Mgmt** shows Opt In and Opt Out, starting on the current choice. Turn to choose, and click to apply it and go back. The Settings page shows the current choice (In/Out) next to the item.
-- **Exit** returns to the main screen.
+- **Back** returns to the main screen.
 
-On the Commissioning and Energy Mgmt pages, holding the knob goes back to Settings without changing anything. Settings itself is left with Exit.
+On the Commissioning and Energy Mgmt pages, holding the knob goes back to Settings without changing anything. Settings itself is left with Back. On both pages the selection wraps around from the last item to the first, and back.
 
 Clicking a program starts it:
 
 - With no price or grid-conditions forecast, it starts straight away.
-- Otherwise a **START** menu offers **Now**, plus **Cheapest** when there's a price forecast and **Greenest** when there's a grid-conditions forecast. Each shows how long it would wait (`+1:30:00`). Turn to choose, click to start, or hold to go back.
+- Otherwise a **START** menu shows two boxes, **Now** and **Smart**, with how long Smart would wait underneath (`+1:30:00`). Turn to swap between them, click to start, or hold to go back.
 - **Now** starts immediately, and the DEM forecast has no start window, so an energy manager can't move it.
-- **Cheapest** and **Greenest** pick the start, within the next 24 hours, that makes the whole program cheapest or lowest in carbon intensity, from the current value and the forecast. The display counts down to it. If you're opted in, an energy manager can still move it.
+- **Smart** picks the start, within the next 24 hours, that makes the whole program cheapest, from the current price and the price forecast. With no price forecast, it uses the grid-conditions forecast and picks the lowest carbon intensity instead. The display counts down to it. If you're opted in, an energy manager can still move it.
 
 While the program waits to start, a click does nothing. While it runs, a click pauses or resumes it. Holding the knob for a second cancels the program at any point.
 
@@ -163,7 +163,13 @@ The energy forecast needs wall-clock time. The ESP32 got it from SNTP, but there
 chip-tool timesynchronization set-utctime <matter-epoch-us> 3 0x05 0
 ```
 
-The time is only held in RAM, so after a reboot you need to set it again. Until the time is set, programs still run but no forecast is published (you'll see `Time not synchronised` in the log).
+The time is only held in RAM, so after a reboot it has to be set again. To avoid doing that by hand, give the dishwasher a **trusted time source**. This is the Time Synchronization cluster's Time Sync Client (TSC) feature. The dishwasher then reads `UTCTime` from that node itself, at boot and every 2 minutes until it has the time. The source must be a node with a Time Synchronization server that knows the time, and it needs an ACL entry giving the dishwasher View access to cluster `0x0038` on endpoint 0. With the source on node `0x01`, endpoint 0:
+
+```
+chip-tool timesynchronization set-trusted-time-source '{"nodeID":1,"endpoint":0}' 0x05 0
+```
+
+The setting is saved, so it survives reboots. Until the time is set, programs still run, but no forecast is published (you'll see `Time not synchronised` in the log), and the START menu only offers Now.
 
 **Note:** forecast and start-time values are in **Matter epoch** seconds (since 2000-01-01), as the spec requires. The ESP32 version used Unix epoch seconds.
 
@@ -189,13 +195,13 @@ Starting a program publishes a forecast with one slot per program step. The prog
 | Quick 45° | 0 h 30 | 0.53 kWh | **heat 9 at 2**, wash 12 at 0.15, **hot rinse 6 at 2**, drain 3 at 0.05 |
 | Heavy 65° | 2 h 00 | 1.34 kWh | **heated pre-wash 8 at 2**, **heat 15 at 2**, wash 35 at 0.2, rinse 15 at 0.1, **hot rinse 12 at 2**, dry 35 at 0.05 |
 
-The Operational State phase (pre-soak, main-wash, rinse, final-rinse, drying) follows the steps. The programs are defined in `kPrograms` in `src/DishwasherManager.cpp`. Cheapest and Greenest weight each step by its power, so they try to put the heating steps in the cheapest or greenest periods.
+The Operational State phase (pre-soak, main-wash, rinse, final-rinse, drying) follows the steps. The programs are defined in `kPrograms` in `src/DishwasherManager.cpp`. Smart weights each step by its power, so it tries to put the heating steps in the cheapest (or greenest) periods.
 
-When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. The same applies to a Cheapest or Greenest start. The forecast's earliest start is now and its latest end is 24 h away. A program started with **Now** on the encoder has no start window, and adjustments are refused.
+When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. The same applies to a Smart start. The forecast's earliest start is now and its latest end is 24 h away. A program started with **Now** on the encoder has no start window, and adjustments are refused.
 
 ## Commodity Price
 
-The dishwasher can read the current electricity price, and the price forecast, from a Commodity Price server such as an Electrical Energy Tariff device ([matter-esp32-electrical-energy-tariff-device](../matter-esp32-electrical-energy-tariff-device)). The price appears on the OLED and the `[display]` line, and `dishwasher price` logs the details. When the server has a price forecast, the encoder's **Cheapest** start uses it.
+The dishwasher can read the current electricity price, and the price forecast, from a Commodity Price server such as an Electrical Energy Tariff device ([matter-esp32-electrical-energy-tariff-device](../matter-esp32-electrical-energy-tariff-device)). The price appears on the OLED and the `[display]` line, and `dishwasher price` logs the details. When the server has a price forecast, the encoder's **Smart** start uses it.
 
 Matter devices can't discover each other, so you tell the dishwasher where the tariff device is with a **Binding**. The tariff device also needs an **ACL** entry that lets the dishwasher read it. With the dishwasher as node `0x05` and the tariff device as node `0x10`, with prices on endpoint 1, both on chip-tool's fabric:
 
@@ -213,13 +219,13 @@ The dishwasher then subscribes to TariffUnit, Currency, CurrentPrice and PriceFo
 
 ## Electrical Grid Conditions
 
-The **Greenest** start uses the grid's carbon intensity (gCO2/kWh) from an Electrical Grid Conditions server, found the same way: a binding for cluster 160, and an ACL entry on that server giving the dishwasher View access to cluster 160. A binding write replaces the whole table, so list both bindings together. For example, with the grid conditions on node `0x11`, endpoint 1:
+When there is no price forecast, the **Smart** start uses the grid's carbon intensity (gCO2/kWh) from an Electrical Grid Conditions server, found the same way: a binding for cluster 160, and an ACL entry on that server giving the dishwasher View access to cluster 160. A binding write replaces the whole table, so list both bindings together. For example, with the grid conditions on node `0x11`, endpoint 1:
 
 ```
 chip-tool binding write binding '[{"node":16,"endpoint":1,"cluster":149},{"node":17,"endpoint":1,"cluster":160}]' 0x05 1
 ```
 
-The dishwasher subscribes to CurrentConditions and ForecastConditions. Greenest is only offered when the server has the **Forecasting (FORE)** feature. `dishwasher grid` logs what it has received.
+The dishwasher subscribes to CurrentConditions and ForecastConditions. The grid forecast is only used when the server has the **Forecasting (FORE)** feature. `dishwasher grid` logs what it has received.
 
 Reading another device needs the Matter read client (`matter_read_client`), which the Silabs build leaves out by default; this project enables it.
 

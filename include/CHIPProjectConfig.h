@@ -101,10 +101,3 @@
  */
 #define CHIP_CONFIG_MRP_LOCAL_ACTIVE_RETRY_INTERVAL (2000_ms32)
 
-/**
- * The matter_time_synchronization component turns on the TrustedTimeSource (TSC) code paths. We only
- * use SetUTCTime (feature map 0), so turn TSC back off to save flash. (Originally this was needed
- * because TSC uses the IM ReadClient; that is now built for the Commodity Price client.)
- */
-#undef TIME_SYNC_ENABLE_TSC_FEATURE
-#define TIME_SYNC_ENABLE_TSC_FEATURE 0

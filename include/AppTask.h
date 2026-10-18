@@ -41,7 +41,7 @@
  *   BTN1 press         Power on / off
  *   Encoder turn       Move through the programs and Settings, or the options on a menu
  *   Encoder click      Settings: open / close the Energy Mgr menu. Program: start it, asking
- *                      Now / Cheapest / Greenest when there's a forecast. Running: pause / resume
+ *                      Now / Smart when there's a forecast. Running: pause / resume
  *   Encoder hold 1s    Stop the program, or leave a menu
  *
  * Start, cancel and energy management opt-in are also on the `dishwasher` shell command.

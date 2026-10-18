@@ -38,6 +38,7 @@ inline constexpr AttributeId kEndpoint0EnabledAttributes[] = {
     Attributes::UTCTime::Id,
     Attributes::Granularity::Id,
     Attributes::TimeSource::Id,
+    Attributes::TrustedTimeSource::Id,
     Attributes::GeneratedCommandList::Id,
     Attributes::AcceptedCommandList::Id,
     Attributes::AttributeList::Id,
@@ -46,6 +47,7 @@ inline constexpr AttributeId kEndpoint0EnabledAttributes[] = {
 };
 inline constexpr CommandId kEndpoint0EnabledCommands[] = {
     Commands::SetUTCTime::Id,
+    Commands::SetTrustedTimeSource::Id,
 };
 } // namespace detail
 
@@ -55,6 +57,7 @@ inline constexpr std::array<Clusters::StaticApplicationConfig::ClusterConfigurat
     {
         .endpointNumber = 0,
         .featureMap = BitFlags<FeatureBitmapType> {
+            FeatureBitmapType::kTimeSyncClient, // feature bit 0x8
         },
         .enabledAttributes =
             Span<const AttributeId>(detail::kEndpoint0EnabledAttributes),
@@ -87,6 +90,8 @@ inline constexpr bool IsAttributeEnabledOnSomeEndpoint(AttributeId attributeId) 
 inline constexpr bool IsCommandEnabledOnSomeEndpoint(CommandId commandId) {
   switch (commandId) {
     case Commands::SetUTCTime::Id:
+      return true;
+    case Commands::SetTrustedTimeSource::Id:
       return true;
     default:
       return false;

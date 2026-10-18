@@ -124,24 +124,52 @@ void DrawMenuRow(uint8_t index, const char * left, const char * right, bool sele
     }
 }
 
-// One row per choice, with its delay at the right.
+// A box with centred text, filled and inverted when selected.
+void DrawBox(int x, int y, int width, const char * text, bool selected)
+{
+    constexpr int kPadding = 4;
+    const int height       = Ssd1306::kCharHeight + 2 * kPadding;
+
+    if (selected)
+    {
+        sOled.FillRect(x, y, width, height, true);
+    }
+    else
+    {
+        sOled.FillRect(x, y, width, 1, true);
+        sOled.FillRect(x, y + height - 1, width, 1, true);
+        sOled.FillRect(x, y, 1, height, true);
+        sOled.FillRect(x + width - 1, y, 1, height, true);
+    }
+    sOled.DrawText(x + (width - Ssd1306::TextWidth(text)) / 2, y + kPadding, text, 1, !selected);
+}
+
+// The choices side by side in boxes, each with its delay underneath.
 void DrawStartChoice(const StatusDisplay::StartChoice * choices, uint8_t count, uint8_t selected)
 {
+    constexpr int kMargin   = 4;
+    constexpr int kBoxY     = 16;
+    constexpr int kDelayY   = 38;
+    constexpr int kBoxWidth = (Ssd1306::kWidth - 3 * kMargin) / StatusDisplay::kMaxStartChoices;
+
     DrawTitleBar("START", nullptr);
 
     for (uint8_t i = 0; i < count; i++)
     {
-        char delay[16] = "";
-        if (choices[i].delayS > 0)
+        const int x = kMargin + i * (kBoxWidth + kMargin);
+        DrawBox(x, kBoxY, kBoxWidth, choices[i].label, i == selected);
+
+        // Now needs no note. Anything else shows when it would start.
+        if (i > 0)
         {
-            delay[0] = '+';
-            FormatDuration(choices[i].delayS, delay + 1, sizeof(delay) - 1);
+            char delay[16] = "now";
+            if (choices[i].delayS > 0)
+            {
+                delay[0] = '+';
+                FormatDuration(choices[i].delayS, delay + 1, sizeof(delay) - 1);
+            }
+            sOled.DrawText(x + (kBoxWidth - Ssd1306::TextWidth(delay)) / 2, kDelayY, delay);
         }
-        else if (i > 0)
-        {
-            snprintf(delay, sizeof(delay), "now");
-        }
-        DrawMenuRow(i, choices[i].label, delay, i == selected);
     }
 
     sOled.DrawText(0, kLine7Y, "click:start hold:back");
@@ -155,9 +183,7 @@ void DrawSettings(uint8_t selected, bool hasOptedIn)
                 selected == StatusDisplay::kSettingsCommissioning);
     DrawMenuRow(StatusDisplay::kSettingsEnergy, "Energy Mgmt", hasOptedIn ? "In" : "Out",
                 selected == StatusDisplay::kSettingsEnergy);
-    DrawMenuRow(StatusDisplay::kSettingsExit, "Exit", nullptr, selected == StatusDisplay::kSettingsExit);
-
-    sOled.DrawText(0, kLine7Y, "click:open");
+    DrawMenuRow(StatusDisplay::kSettingsBack, "Back", nullptr, selected == StatusDisplay::kSettingsBack);
 }
 
 void DrawEnergyMenu(uint8_t selected)
@@ -269,7 +295,7 @@ void StatusDisplay::UpdateDisplay(const View & view)
 
     if (view.screen == Screen::kSettings)
     {
-        static const char * const kItems[] = { "Commissioning", "Energy Mgmt", "Exit" };
+        static const char * const kItems[] = { "Commissioning", "Energy Mgmt", "Back" };
         snprintf(status, sizeof(status), "SETTINGS | %s | EM %s", kItems[view.selectedMenuItem], optInText);
         DrawSettings(view.selectedMenuItem, view.hasOptedIn);
     }

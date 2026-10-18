@@ -221,12 +221,9 @@ void DishwasherManager::HandleWheelTurned(int8_t direction)
     {
         const int count = mScreen == Screen::kSettings ? int{ StatusDisplay::kSettingsItemCount }
                                                        : int{ StatusDisplay::kEnergyItemCount };
-        const int next  = mMenuItem + direction;
-        if (next >= 0 && next < count)
-        {
-            mMenuItem = static_cast<uint8_t>(next);
-            UpdateDishwasherDisplay();
-        }
+        // Wraps around at either end.
+        mMenuItem = static_cast<uint8_t>((mMenuItem + count + direction) % count);
+        UpdateDishwasherDisplay();
         return;
     }
 
@@ -237,12 +234,9 @@ void DishwasherManager::HandleWheelTurned(int8_t direction)
 
     if (mScreen == Screen::kStartChoice)
     {
-        const int next = mSelectedStartChoice + direction;
-        if (next >= 0 && next < mStartChoiceCount)
-        {
-            mSelectedStartChoice = static_cast<uint8_t>(next);
-            UpdateDishwasherDisplay();
-        }
+        // Wraps around, so turning either way swaps between the boxes.
+        mSelectedStartChoice = static_cast<uint8_t>((mSelectedStartChoice + mStartChoiceCount + direction) % mStartChoiceCount);
+        UpdateDishwasherDisplay();
         return;
     }
 
@@ -359,7 +353,7 @@ void DishwasherManager::HandleWheelLongPressed()
         ShowScreen(Screen::kSettings, StatusDisplay::kSettingsEnergy);
         return;
     case Screen::kSettings:
-        // Exit is on the page.
+        // Back is on the page.
         return;
     case Screen::kStartChoice:
         ShowScreen(Screen::kStatus);
@@ -453,14 +447,17 @@ void DishwasherManager::OpenStartChoice()
 
     addChoice(StartOption::kNow, "Now", 0);
 
+    // Smart uses the price when there's a price forecast, and otherwise the grid conditions.
     uint32_t delayS = 0;
     if (FindCheapestStart(delayS))
     {
-        addChoice(StartOption::kCheapest, "Cheapest", delayS);
+        mSmartUsesPrice = true;
+        addChoice(StartOption::kSmart, "Smart", delayS);
     }
-    if (FindGreenestStart(delayS))
+    else if (FindGreenestStart(delayS))
     {
-        addChoice(StartOption::kGreenest, "Greenest", delayS);
+        mSmartUsesPrice = false;
+        addChoice(StartOption::kSmart, "Smart", delayS);
     }
 
     // Nothing to choose between.
@@ -622,7 +619,7 @@ void DishwasherManager::StartProgram(StartOption option, uint32_t delayS)
         return;
     }
 
-    ChipLogProgress(AppServer, "Starting at the %s time, in %lus", option == StartOption::kCheapest ? "cheapest" : "greenest",
+    ChipLogProgress(AppServer, "Starting at the smart time (%s), in %lus", mSmartUsesPrice ? "price" : "grid",
                     static_cast<unsigned long>(delayS));
     BeginProgram(delayS, mOptedIntoEnergyManagement);
 }

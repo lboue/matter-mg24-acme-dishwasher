@@ -21,10 +21,10 @@ public:
     enum class Screen : uint8_t
     {
         kStatus,        // The normal screen, or the delayed-start countdown
-        kSettings,      // Commissioning / Energy Mgmt / Exit
+        kSettings,      // Commissioning / Energy Mgmt / Back
         kCommissioning, // The QR code and manual pairing code, while the commissioning window is open
         kEnergyMenu,    // Opt In / Opt Out, opened from Settings
-        kStartChoice,   // Now / Cheapest / Greenest
+        kStartChoice,   // Now / Smart
     };
 
     struct StartChoice
@@ -33,14 +33,14 @@ public:
         uint32_t delayS    = 0;
     };
 
-    static constexpr uint8_t kMaxStartChoices = 3;
+    static constexpr uint8_t kMaxStartChoices = 2;
 
     // The rows on the Settings page, and on the Energy Mgmt page.
     enum SettingsItem : uint8_t
     {
         kSettingsCommissioning,
         kSettingsEnergy,
-        kSettingsExit,
+        kSettingsBack,
         kSettingsItemCount,
     };
     enum EnergyItem : uint8_t

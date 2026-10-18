@@ -28,8 +28,7 @@ public:
     enum class StartOption : uint8_t
     {
         kNow,
-        kCheapest,
-        kGreenest,
+        kSmart, // The best time, from the price forecast, or else the grid-conditions forecast
     };
 
     CHIP_ERROR Init();
@@ -118,6 +117,7 @@ private:
     StartOption mStartOptions[StatusDisplay::kMaxStartChoices];
     uint8_t mStartChoiceCount    = 0;
     uint8_t mSelectedStartChoice = 0;
+    bool mSmartUsesPrice         = false; // Which forecast Smart's delay came from, for the log
 
     // The highlighted row on the Settings and Energy Mgmt pages.
     uint8_t mMenuItem = 0;
