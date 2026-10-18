@@ -925,6 +925,7 @@ void DishwasherManager::UpdateDishwasherDisplay()
     view.isSettingsSelected  = mIsSettingsSelected;
     view.startsIn            = mDelayedStartTimeRemaining;
     view.timeRemaining       = mRunningTimeRemaining;
+    view.programDurationS    = GetProgramDuration();
     view.stateText           = stateText;
     view.modeText            = modeBuffer;
     view.phaseText           = phaseBuffer;

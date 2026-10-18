@@ -52,16 +52,17 @@ public:
 
     struct View
     {
-        Screen screen           = Screen::kStatus;
-        bool hasOptedIn         = false;
-        bool isProgramSelected  = false;
-        bool isSettingsSelected = false; // The Settings item on the program list, not a program
-        uint32_t startsIn       = 0;
-        uint32_t timeRemaining  = 0;
-        const char * stateText  = "";
-        const char * modeText   = "";
-        const char * phaseText  = "";
-        const char * priceText  = "";
+        Screen screen             = Screen::kStatus;
+        bool hasOptedIn           = false;
+        bool isProgramSelected    = false;
+        bool isSettingsSelected   = false; // The Settings item on the program list, not a program
+        uint32_t startsIn         = 0;
+        uint32_t timeRemaining    = 0;
+        uint32_t programDurationS = 0; // The selected program's full running time
+        const char * stateText    = "";
+        const char * modeText     = "";
+        const char * phaseText    = "";
+        const char * priceText    = "";
 
         const StartChoice * startChoices = nullptr;
         uint8_t startChoiceCount         = 0;

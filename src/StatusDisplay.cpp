@@ -80,7 +80,7 @@ void DrawDelayedStart(bool hasOptedIn, uint32_t startsIn, const char * modeText,
 }
 
 void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText, const char * modeText, const char * phaseText,
-                const char * priceText, const char * hint)
+                const char * priceText, uint32_t programDurationS)
 {
     DrawTitleBar(stateText, hasOptedIn ? "EM" : nullptr);
 
@@ -89,19 +89,19 @@ void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText,
 
     sOled.DrawText(0, kPhaseY, phaseText);
 
-    // The time left while a program runs. Settings can only be selected when none is, so its hint
-    // shares the row.
+    // The time left while a program runs, otherwise how long the selected program takes.
+    char time[24] = "";
     if (timeRemaining > 0)
     {
-        char remaining[24];
-        FormatDuration(timeRemaining, remaining, sizeof(remaining));
-        strncat(remaining, " left", sizeof(remaining) - strlen(remaining) - 1);
-        sOled.DrawText(0, kLine6Y, remaining);
+        FormatDuration(timeRemaining, time, sizeof(time));
+        strncat(time, " left", sizeof(time) - strlen(time) - 1);
     }
-    else if (hint != nullptr)
+    else if (programDurationS > 0)
     {
-        sOled.DrawText(0, kLine6Y, hint);
+        FormatDuration(programDurationS, time, sizeof(time));
+        strncat(time, " run time", sizeof(time) - strlen(time) - 1);
     }
+    sOled.DrawText(0, kLine6Y, time);
 
     sOled.DrawText(0, kLine7Y, priceText);
 }
@@ -317,7 +317,7 @@ void StatusDisplay::UpdateDisplay(const View & view)
                  view.priceText);
         countdown = view.timeRemaining;
         DrawStatus(view.hasOptedIn, view.timeRemaining, view.stateText, modeText, view.phaseText, view.priceText,
-                   view.isSettingsSelected ? "click to open" : nullptr);
+                   view.isSettingsSelected ? 0 : view.programDurationS);
     }
 
     // Only sends the pages that changed.
