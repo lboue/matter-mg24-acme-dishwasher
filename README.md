@@ -26,7 +26,8 @@ The dev kit has two buttons, and the OLED and rotary encoder are wired to its ex
 | Select program | Rotary encoder | **Encoder** turn, **BTN0** short press (once commissioned), or `dishwasher mode` |
 | Start | Start button | **Encoder** click on a program (choosing Now, Cheapest or Greenest), or `dishwasher start` |
 | Pause / resume | Start button | **Encoder** click while running, or `dishwasher start` |
-| Energy management opt-in | Menu (rotary click and turn) | **Encoder** turn to **Settings** and click, turn to choose, click to close; or `dishwasher optin on\|off` |
+| Energy management opt-in | Menu (rotary click and turn) | **Encoder**: **Settings** → **Energy Mgmt**, turn to choose, click to apply; or `dishwasher optin on\|off` |
+| Share with another controller | — | **Encoder**: **Settings** → **Commissioning** shows the QR and manual pairing codes |
 | Cancel program | Rotary click | **Encoder** hold ≥ 1 s, or `dishwasher cancel` |
 | Factory reset | Hold On/Off 5 s, then confirm | **BTN0** hold ~6 s (Silabs standard; LEDs blink, release to cancel) |
 | Display | SSD1306 OLED | SH1106 OLED on the expansion header, plus **LED1** and the log (see below) |
@@ -89,7 +90,13 @@ A KY-040 style encoder with a push switch. Only EXP10 is otherwise free (EXP5 an
 | + | 3V3 | |
 | GND | GND | |
 
-With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick, Heavy and **Settings**. Settings isn't a program: clicking it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it.
+With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick, Heavy and **Settings**. Settings isn't a program: clicking it opens the **SETTINGS** page, a list of three items. Turn to choose, and click to open:
+
+- **Commissioning** opens the commissioning window, so you can add the dishwasher to another Matter controller (multi-admin). The page shows the QR code and the 11-digit manual pairing code. A click closes the window and goes back. The page also goes back by itself when the window closes, after 15 minutes or once a controller has finished commissioning.
+- **Energy Mgmt** shows Opt In and Opt Out, starting on the current choice. Turn to choose, and click to apply it and go back. The Settings page shows the current choice (In/Out) next to the item.
+- **Exit** returns to the main screen.
+
+On the Commissioning and Energy Mgmt pages, holding the knob goes back to Settings without changing anything. Settings itself is left with Exit.
 
 Clicking a program starts it:
 

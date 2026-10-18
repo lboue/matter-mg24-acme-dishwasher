@@ -3,10 +3,12 @@
 #include "AppTask.h"
 #include "LEDWidget.h"
 #include "Ssd1306.h"
+#include "qrcodegen.h"
 #include "sl_i2c_instances.h"
 
 #include <lib/support/logging/CHIPLogging.h>
 
+#include <algorithm>
 #include <stdio.h>
 #include <string.h>
 
@@ -104,59 +106,32 @@ void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText,
     sOled.DrawText(0, kLine7Y, priceText);
 }
 
-// Draws one menu choice in a box, inverted when selected.
-void DrawMenuOption(int x, const char * text, bool selected)
-{
-    constexpr int kPadding = 3;
-    const int width        = Ssd1306::TextWidth(text) + 2 * kPadding;
-    const int height       = Ssd1306::kCharHeight + 2 * kPadding;
-    const int y            = kModeY + 8;
-
-    if (selected)
-    {
-        sOled.FillRect(x, y, width, height, true);
-    }
-    else
-    {
-        sOled.FillRect(x, y, width, 1, true);
-        sOled.FillRect(x, y + height - 1, width, 1, true);
-        sOled.FillRect(x, y, 1, height, true);
-        sOled.FillRect(x + width - 1, y, 1, height, true);
-    }
-    sOled.DrawText(x + kPadding, y + kPadding, text, 1, !selected);
-}
-
-void DrawMenu(bool hasOptedIn)
-{
-    DrawTitleBar("ENERGY MGR", nullptr);
-
-    // Opt Out on the left and Opt In on the right, matching the turn direction.
-    DrawMenuOption(4, "Opt Out", !hasOptedIn);
-    const int optInWidth = Ssd1306::TextWidth("Opt In") + 6;
-    DrawMenuOption(Ssd1306::kWidth - 4 - optInWidth, "Opt In", hasOptedIn);
-
-    sOled.DrawText(0, kLine7Y, "turn: set click: exit");
-}
-
-// One row per choice, with its delay at the right. The selected row is inverted.
-void DrawStartChoice(const StatusDisplay::StartChoice * choices, uint8_t count, uint8_t selected)
+// One full-width menu row, with optional text at the right. The selected row is inverted.
+void DrawMenuRow(uint8_t index, const char * left, const char * right, bool selected)
 {
     constexpr int kFirstRowY = 14;
     constexpr int kRowHeight = 11;
 
+    const int y = kFirstRowY + index * kRowHeight;
+    if (selected)
+    {
+        sOled.FillRect(0, y - 1, Ssd1306::kWidth, Ssd1306::kCharHeight + 2, true);
+    }
+    sOled.DrawText(2, y, left, 1, !selected);
+    if (right != nullptr)
+    {
+        sOled.DrawText(Ssd1306::kWidth - 2 - Ssd1306::TextWidth(right), y, right, 1, !selected);
+    }
+}
+
+// One row per choice, with its delay at the right.
+void DrawStartChoice(const StatusDisplay::StartChoice * choices, uint8_t count, uint8_t selected)
+{
     DrawTitleBar("START", nullptr);
 
     for (uint8_t i = 0; i < count; i++)
     {
-        const int y     = kFirstRowY + i * kRowHeight;
-        const bool isOn = i != selected;
-        char delay[16]  = "";
-        if (i == selected)
-        {
-            sOled.FillRect(0, y - 1, Ssd1306::kWidth, Ssd1306::kCharHeight + 2, true);
-        }
-        sOled.DrawText(2, y, choices[i].label, 1, isOn);
-
+        char delay[16] = "";
         if (choices[i].delayS > 0)
         {
             delay[0] = '+';
@@ -166,10 +141,84 @@ void DrawStartChoice(const StatusDisplay::StartChoice * choices, uint8_t count, 
         {
             snprintf(delay, sizeof(delay), "now");
         }
-        sOled.DrawText(Ssd1306::kWidth - 2 - Ssd1306::TextWidth(delay), y, delay, 1, isOn);
+        DrawMenuRow(i, choices[i].label, delay, i == selected);
     }
 
     sOled.DrawText(0, kLine7Y, "click:start hold:back");
+}
+
+void DrawSettings(uint8_t selected, bool hasOptedIn)
+{
+    DrawTitleBar("SETTINGS", nullptr);
+
+    DrawMenuRow(StatusDisplay::kSettingsCommissioning, "Commissioning", nullptr,
+                selected == StatusDisplay::kSettingsCommissioning);
+    DrawMenuRow(StatusDisplay::kSettingsEnergy, "Energy Mgmt", hasOptedIn ? "In" : "Out",
+                selected == StatusDisplay::kSettingsEnergy);
+    DrawMenuRow(StatusDisplay::kSettingsExit, "Exit", nullptr, selected == StatusDisplay::kSettingsExit);
+
+    sOled.DrawText(0, kLine7Y, "click:open");
+}
+
+void DrawEnergyMenu(uint8_t selected)
+{
+    DrawTitleBar("ENERGY MGMT", nullptr);
+
+    DrawMenuRow(StatusDisplay::kEnergyOptIn, "Opt In", nullptr, selected == StatusDisplay::kEnergyOptIn);
+    DrawMenuRow(StatusDisplay::kEnergyOptOut, "Opt Out", nullptr, selected == StatusDisplay::kEnergyOptOut);
+
+    sOled.DrawText(0, kLine7Y, "click:choose");
+}
+
+// The QR code fills the left of the screen, with the manual pairing code to its right.
+void DrawCommissioning(const char * qrCode, const char * manualCode)
+{
+    constexpr int kQuietModules = 1;
+    constexpr int kMaxVersion   = 5;
+
+    static uint8_t sQr[qrcodegen_BUFFER_LEN_FOR_VERSION(kMaxVersion)];
+    static uint8_t sTemp[qrcodegen_BUFFER_LEN_FOR_VERSION(kMaxVersion)];
+
+    int textX = 0;
+    if (qrcodegen_encodeText(qrCode, sTemp, sQr, qrcodegen_Ecc_LOW, qrcodegen_VERSION_MIN, kMaxVersion, qrcodegen_Mask_AUTO,
+                             true))
+    {
+        const int size  = qrcodegen_getSize(sQr);
+        const int scale = Ssd1306::kHeight / (size + 2 * kQuietModules);
+        const int side  = (size + 2 * kQuietModules) * scale;
+        const int top   = (Ssd1306::kHeight - side) / 2;
+
+        // Dark modules on a lit square, so it reads like a printed code.
+        sOled.FillRect(0, top, side, side, true);
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                if (qrcodegen_getModule(sQr, x, y))
+                {
+                    sOled.FillRect((x + kQuietModules) * scale, top + (y + kQuietModules) * scale, scale, scale, false);
+                }
+            }
+        }
+        textX = side + 2;
+    }
+
+    // The 11-digit manual code, split 4-3-4 as it's usually printed.
+    char lines[3][5]      = {};
+    const size_t length   = strlen(manualCode);
+    const size_t splits[] = { 0, 4, 7, length };
+    for (size_t i = 0; i < 3; i++)
+    {
+        const size_t from = std::min(splits[i], length);
+        const size_t to   = std::min(splits[i + 1], length);
+        memcpy(lines[i], manualCode + from, std::min<size_t>(to - from, sizeof(lines[i]) - 1));
+    }
+
+    sOled.DrawText(textX, 2, "Pairing");
+    sOled.DrawText(textX, 16, lines[0]);
+    sOled.DrawText(textX, 26, lines[1]);
+    sOled.DrawText(textX, 36, lines[2]);
+    sOled.DrawText(textX, kLine7Y, "click:stop");
 }
 } // namespace
 
@@ -218,10 +267,22 @@ void StatusDisplay::UpdateDisplay(const View & view)
 
     sOled.Clear();
 
-    if (view.screen == Screen::kEnergyMenu)
+    if (view.screen == Screen::kSettings)
     {
-        snprintf(status, sizeof(status), "MENU | EM %s", optInText);
-        DrawMenu(view.hasOptedIn);
+        static const char * const kItems[] = { "Commissioning", "Energy Mgmt", "Exit" };
+        snprintf(status, sizeof(status), "SETTINGS | %s | EM %s", kItems[view.selectedMenuItem], optInText);
+        DrawSettings(view.selectedMenuItem, view.hasOptedIn);
+    }
+    else if (view.screen == Screen::kCommissioning)
+    {
+        snprintf(status, sizeof(status), "COMMISSIONING | %s", view.manualCode);
+        DrawCommissioning(view.qrCode, view.manualCode);
+    }
+    else if (view.screen == Screen::kEnergyMenu)
+    {
+        snprintf(status, sizeof(status), "ENERGY | %s | EM %s",
+                 view.selectedMenuItem == kEnergyOptIn ? "Opt In" : "Opt Out", optInText);
+        DrawEnergyMenu(view.selectedMenuItem);
     }
     else if (view.screen == Screen::kStartChoice)
     {

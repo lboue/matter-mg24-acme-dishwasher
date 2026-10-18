@@ -6,6 +6,8 @@
 #include <app/clusters/operational-state-server/operational-state-server.h>
 #include <app/data-model/Nullable.h>
 #include <lib/core/CHIPError.h>
+#include <setup_payload/QRCodeSetupPayloadGenerator.h>
+#include <setup_payload/SetupPayload.h>
 #include <system/SystemLayer.h>
 
 /**
@@ -76,6 +78,10 @@ private:
     void ToggleProgram();
     void BeginProgram(uint32_t delayS, bool canMoveStart);
     void OpenStartChoice();
+    void ShowScreen(StatusDisplay::Screen screen, uint8_t menuItem = 0);
+    void OpenCommissioning();
+    void CloseCommissioning();
+    void CheckCommissioningWindow();
     bool FindCheapestStart(uint32_t & delayS) const;
     bool FindGreenestStart(uint32_t & delayS) const;
     uint32_t GetProgramDuration() const;
@@ -112,6 +118,13 @@ private:
     StartOption mStartOptions[StatusDisplay::kMaxStartChoices];
     uint8_t mStartChoiceCount    = 0;
     uint8_t mSelectedStartChoice = 0;
+
+    // The highlighted row on the Settings and Energy Mgmt pages.
+    uint8_t mMenuItem = 0;
+
+    // The onboarding codes shown on the Commissioning page.
+    char mQrCode[chip::QRCodeBasicSetupPayloadGenerator::kMaxQRCodeBase38RepresentationLength + 1] = "";
+    char mManualCode[chip::kManualSetupLongCodeCharLength + 1]                                    = "";
 };
 
 inline DishwasherManager & DishwasherMgr()

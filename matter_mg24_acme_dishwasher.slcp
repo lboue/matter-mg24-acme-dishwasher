@@ -113,6 +113,9 @@ include:
       - path: StartPlanner.h
       - path: StatusDisplay.h
       - path: WallClock.h
+  - path: third_party/qrcodegen
+    file_list:
+      - path: qrcodegen.h
 
 source:
   - path: src/main.cpp
@@ -129,6 +132,7 @@ source:
   - path: src/StartPlanner.cpp
   - path: src/StatusDisplay.cpp
   - path: src/WallClock.cpp
+  - path: third_party/qrcodegen/qrcodegen.c
 
 define:
   - name: CHIP_CRYPTO_PLATFORM

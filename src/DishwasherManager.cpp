@@ -16,8 +16,10 @@
 #include "WallClock.h"
 
 #include <app-common/zap-generated/attributes/Accessors.h>
+#include <app/server/Server.h>
 #include <lib/support/logging/CHIPLogging.h>
 #include <platform/CHIPDeviceLayer.h>
+#include <setup_payload/OnboardingCodesUtil.h>
 
 using namespace chip;
 using namespace chip::app;
@@ -138,6 +140,7 @@ CHIP_ERROR DishwasherManager::Init()
 
 void DishwasherManager::ProgramTick(System::Layer * layer, void * context)
 {
+    DishwasherMgr().CheckCommissioningWindow();
     DishwasherMgr().ProgressProgram();
     TEMPORARY_RETURN_IGNORED layer->StartTimer(kTickInterval, ProgramTick, context);
 }
@@ -214,10 +217,21 @@ void DishwasherManager::HandleWheelTurned(int8_t direction)
         return;
     }
 
-    if (mScreen == Screen::kEnergyMenu)
+    if (mScreen == Screen::kSettings || mScreen == Screen::kEnergyMenu)
     {
-        // Opt Out is on the left of the menu and Opt In on the right.
-        SetEnergyManagementOptIn(direction > 0);
+        const int count = mScreen == Screen::kSettings ? int{ StatusDisplay::kSettingsItemCount }
+                                                       : int{ StatusDisplay::kEnergyItemCount };
+        const int next  = mMenuItem + direction;
+        if (next >= 0 && next < count)
+        {
+            mMenuItem = static_cast<uint8_t>(next);
+            UpdateDishwasherDisplay();
+        }
+        return;
+    }
+
+    if (mScreen == Screen::kCommissioning)
+    {
         return;
     }
 
@@ -267,11 +281,32 @@ void DishwasherManager::HandleWheelClicked()
         return;
     }
 
-    if (mScreen == Screen::kEnergyMenu)
+    switch (mScreen)
     {
-        mScreen = Screen::kStatus;
-        UpdateDishwasherDisplay();
+    case Screen::kSettings:
+        switch (mMenuItem)
+        {
+        case StatusDisplay::kSettingsCommissioning:
+            OpenCommissioning();
+            break;
+        case StatusDisplay::kSettingsEnergy:
+            ShowScreen(Screen::kEnergyMenu, mOptedIntoEnergyManagement ? StatusDisplay::kEnergyOptIn : StatusDisplay::kEnergyOptOut);
+            break;
+        default:
+            ShowScreen(Screen::kStatus);
+            break;
+        }
         return;
+    case Screen::kCommissioning:
+        CloseCommissioning();
+        ShowScreen(Screen::kSettings, StatusDisplay::kSettingsCommissioning);
+        return;
+    case Screen::kEnergyMenu:
+        SetEnergyManagementOptIn(mMenuItem == StatusDisplay::kEnergyOptIn);
+        ShowScreen(Screen::kSettings, StatusDisplay::kSettingsEnergy);
+        return;
+    default:
+        break;
     }
 
     if (mScreen == Screen::kStartChoice)
@@ -299,8 +334,7 @@ void DishwasherManager::HandleWheelClicked()
 
     if (mIsSettingsSelected)
     {
-        mScreen = Screen::kEnergyMenu;
-        UpdateDishwasherDisplay();
+        ShowScreen(Screen::kSettings);
         return;
     }
 
@@ -314,16 +348,95 @@ void DishwasherManager::HandleWheelLongPressed()
         return;
     }
 
-    if (mScreen != Screen::kStatus)
+    // Back one level.
+    switch (mScreen)
     {
-        mScreen = Screen::kStatus;
-        UpdateDishwasherDisplay();
+    case Screen::kCommissioning:
+        CloseCommissioning();
+        ShowScreen(Screen::kSettings, StatusDisplay::kSettingsCommissioning);
         return;
+    case Screen::kEnergyMenu:
+        ShowScreen(Screen::kSettings, StatusDisplay::kSettingsEnergy);
+        return;
+    case Screen::kSettings:
+        // Exit is on the page.
+        return;
+    case Screen::kStartChoice:
+        ShowScreen(Screen::kStatus);
+        return;
+    case Screen::kStatus:
+        break;
     }
 
     if (mIsProgramSelected)
     {
         StopProgram();
+    }
+}
+
+void DishwasherManager::ShowScreen(Screen screen, uint8_t menuItem)
+{
+    mScreen   = screen;
+    mMenuItem = menuItem;
+    UpdateDishwasherDisplay();
+}
+
+void DishwasherManager::OpenCommissioning()
+{
+    auto & windowManager = Server::GetInstance().GetCommissioningWindowManager();
+    if (!windowManager.IsCommissioningWindowOpen())
+    {
+        CHIP_ERROR err = windowManager.OpenBasicCommissioningWindow();
+        if (err != CHIP_NO_ERROR)
+        {
+            ChipLogError(AppServer, "Failed to open the commissioning window: %" CHIP_ERROR_FORMAT, err.Format());
+            return;
+        }
+    }
+
+    const RendezvousInformationFlags rendezvous(RendezvousInformationFlag::kBLE, RendezvousInformationFlag::kOnNetwork);
+
+    MutableCharSpan qrCode(mQrCode, sizeof(mQrCode) - 1);
+    if (GetQRCode(qrCode, rendezvous) == CHIP_NO_ERROR)
+    {
+        mQrCode[qrCode.size()] = '\0';
+    }
+    else
+    {
+        mQrCode[0] = '\0';
+    }
+
+    MutableCharSpan manualCode(mManualCode, sizeof(mManualCode) - 1);
+    if (GetManualPairingCode(manualCode, rendezvous) == CHIP_NO_ERROR)
+    {
+        mManualCode[manualCode.size()] = '\0';
+    }
+    else
+    {
+        mManualCode[0] = '\0';
+    }
+
+    ChipLogProgress(AppServer, "Commissioning window open. QR code %s, manual code %s", mQrCode, mManualCode);
+    ShowScreen(Screen::kCommissioning);
+}
+
+void DishwasherManager::CloseCommissioning()
+{
+    auto & windowManager = Server::GetInstance().GetCommissioningWindowManager();
+    if (windowManager.IsCommissioningWindowOpen())
+    {
+        windowManager.CloseCommissioningWindow();
+        ChipLogProgress(AppServer, "Commissioning window closed");
+    }
+}
+
+void DishwasherManager::CheckCommissioningWindow()
+{
+    // The window closes by itself when it times out or a controller finishes commissioning.
+    if (mScreen == Screen::kCommissioning && !Server::GetInstance().GetCommissioningWindowManager().IsCommissioningWindowOpen())
+    {
+        ChipLogProgress(AppServer, "Commissioning window has closed");
+        ShowScreen(Screen::kSettings, StatusDisplay::kSettingsCommissioning);
     }
 }
 
@@ -464,6 +577,11 @@ void DishwasherManager::TurnOnPower()
 
 void DishwasherManager::TurnOffPower()
 {
+    if (mScreen == Screen::kCommissioning)
+    {
+        CloseCommissioning();
+    }
+
     mIsPoweredOn = false;
     mScreen      = Screen::kStatus;
     StopProgram();
@@ -515,6 +633,11 @@ void DishwasherManager::BeginProgram(uint32_t delayS, bool canMoveStart)
     {
         ChipLogProgress(AppServer, "A program has already been started");
         return;
+    }
+
+    if (mScreen == Screen::kCommissioning)
+    {
+        CloseCommissioning();
     }
 
     mIsProgramSelected  = true;
@@ -809,6 +932,9 @@ void DishwasherManager::UpdateDishwasherDisplay()
     view.startChoices        = mStartChoices;
     view.startChoiceCount    = mStartChoiceCount;
     view.selectedStartChoice = mSelectedStartChoice;
+    view.selectedMenuItem    = mMenuItem;
+    view.qrCode              = mQrCode;
+    view.manualCode          = mManualCode;
 
     StatusDisplay::Instance().UpdateDisplay(view);
 }

@@ -20,9 +20,11 @@ class StatusDisplay
 public:
     enum class Screen : uint8_t
     {
-        kStatus,      // The normal screen, or the delayed-start countdown
-        kEnergyMenu,  // Opt In / Opt Out, opened from Settings
-        kStartChoice, // Now / Cheapest / Greenest
+        kStatus,        // The normal screen, or the delayed-start countdown
+        kSettings,      // Commissioning / Energy Mgmt / Exit
+        kCommissioning, // The QR code and manual pairing code, while the commissioning window is open
+        kEnergyMenu,    // Opt In / Opt Out, opened from Settings
+        kStartChoice,   // Now / Cheapest / Greenest
     };
 
     struct StartChoice
@@ -32,6 +34,21 @@ public:
     };
 
     static constexpr uint8_t kMaxStartChoices = 3;
+
+    // The rows on the Settings page, and on the Energy Mgmt page.
+    enum SettingsItem : uint8_t
+    {
+        kSettingsCommissioning,
+        kSettingsEnergy,
+        kSettingsExit,
+        kSettingsItemCount,
+    };
+    enum EnergyItem : uint8_t
+    {
+        kEnergyOptIn,
+        kEnergyOptOut,
+        kEnergyItemCount,
+    };
 
     struct View
     {
@@ -49,6 +66,11 @@ public:
         const StartChoice * startChoices = nullptr;
         uint8_t startChoiceCount         = 0;
         uint8_t selectedStartChoice      = 0;
+
+        uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu
+
+        const char * qrCode     = ""; // On kCommissioning
+        const char * manualCode = "";
     };
 
     static StatusDisplay & Instance() { return sInstance; }
