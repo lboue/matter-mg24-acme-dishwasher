@@ -32,8 +32,77 @@ constexpr System::Clock::Seconds32 kTickInterval(1);
 // Start in one minute to allow for optimisation when opted into energy management.
 constexpr uint32_t kOptimisationDelayS = 60;
 
-constexpr uint32_t kSlotDurationS = 30 * 60;
-constexpr int64_t kSlotPowerMw    = 3'000'000;
+// Indices into OperationalStateDelegate's phase list.
+enum Phase : uint8_t
+{
+    kPreSoak,
+    kMainWash,
+    kRinse,
+    kFinalRinse,
+    kDrying,
+};
+
+// One step of a program, at constant power. Each step is one slot in the DEM forecast.
+struct ProgramStep
+{
+    uint16_t minutes;
+    uint16_t powerW;
+    Phase phase;
+};
+
+// Shaped like real programs: the ~2 kW heater only runs while it heats the water for the main wash
+// and the final rinse, and the circulation pump draws 0.1-0.2 kW the rest of the time. Lengths and
+// energy match published figures for each kind of program.
+
+// 210 min, 0.91 kWh. Long and cool, drying on leftover heat.
+constexpr ProgramStep kEcoSteps[] = {
+    { 15, 100, kPreSoak }, { 12, 2000, kMainWash }, { 60, 150, kMainWash },
+    { 30, 100, kRinse },   { 8, 2000, kFinalRinse }, { 85, 10, kDrying },
+};
+
+// 135 min, 1.67 kWh. A 70° wash, a long hot rinse held at temperature, and a heated dry.
+constexpr ProgramStep kChefSteps[] = {
+    { 10, 100, kPreSoak },     { 18, 2000, kMainWash },   { 40, 200, kMainWash }, { 15, 100, kRinse },
+    { 20, 2000, kFinalRinse }, { 10, 500, kFinalRinse }, { 22, 400, kDrying },
+};
+
+// 30 min, 0.53 kWh. No pre-wash, and only a short drain at the end.
+constexpr ProgramStep kQuickSteps[] = {
+    { 9, 2000, kMainWash },
+    { 12, 150, kMainWash },
+    { 6, 2000, kFinalRinse },
+    { 3, 50, kDrying },
+};
+
+// 120 min, 1.34 kWh. A heated pre-wash, a 65° wash and a hot final rinse.
+constexpr ProgramStep kIntensiveSteps[] = {
+    { 8, 2000, kPreSoak }, { 15, 2000, kMainWash },   { 35, 200, kMainWash },
+    { 15, 100, kRinse },   { 12, 2000, kFinalRinse }, { 35, 50, kDrying },
+};
+
+struct Program
+{
+    const ProgramStep * steps;
+    size_t count;
+};
+
+template <size_t N>
+constexpr Program MakeProgram(const ProgramStep (&steps)[N])
+{
+    return { steps, N };
+}
+
+// Indexed by mode.
+constexpr Program kPrograms[DishwasherMode::DishwasherModeDelegate::kModeCount] = {
+    MakeProgram(kEcoSteps),
+    MakeProgram(kChefSteps),
+    MakeProgram(kQuickSteps),
+    MakeProgram(kIntensiveSteps),
+};
+
+constexpr size_t kMaxProgramSteps = 7;
+static_assert(MATTER_ARRAY_SIZE(kEcoSteps) <= kMaxProgramSteps && MATTER_ARRAY_SIZE(kChefSteps) <= kMaxProgramSteps &&
+              MATTER_ARRAY_SIZE(kQuickSteps) <= kMaxProgramSteps && MATTER_ARRAY_SIZE(kIntensiveSteps) <= kMaxProgramSteps);
 
 // How far ahead a program may be moved, matching the forecast's latestEndTime.
 constexpr uint32_t kStartHorizonS = 86400;
@@ -44,8 +113,11 @@ using Screen = StatusDisplay::Screen;
 StartPlanner::Period sPlannerPeriods[1 + PriceSubscriber::kMaxForecastEntries];
 static_assert(PriceSubscriber::kMaxForecastEntries >= GridConditionsSubscriber::kMaxForecastEntries);
 
+// The selected program's steps, for StartPlanner.
+StartPlanner::Step sPowerProfile[kMaxProgramSteps];
+
 // Track this separately as the forecast struct only holds a list view onto the slots.
-DeviceEnergyManagement::Structs::SlotStruct::Type sSlots[3];
+DeviceEnergyManagement::Structs::SlotStruct::Type sSlots[kMaxProgramSteps];
 DeviceEnergyManagement::Structs::ForecastStruct::Type sForecastStruct;
 } // namespace
 
@@ -291,8 +363,22 @@ void DishwasherManager::OpenStartChoice()
 
 uint32_t DishwasherManager::GetProgramDuration() const
 {
-    // 30, 60 or 90 minutes.
-    return kSlotDurationS + (mMode * kSlotDurationS);
+    uint32_t durationS = 0;
+    for (size_t i = 0; i < kPrograms[mMode].count; i++)
+    {
+        durationS += kPrograms[mMode].steps[i].minutes * 60u;
+    }
+    return durationS;
+}
+
+Span<const StartPlanner::Step> DishwasherManager::GetPowerProfile() const
+{
+    const Program & program = kPrograms[mMode];
+    for (size_t i = 0; i < program.count; i++)
+    {
+        sPowerProfile[i] = { program.steps[i].minutes * 60u, program.steps[i].powerW };
+    }
+    return Span<const StartPlanner::Step>(sPowerProfile, program.count);
 }
 
 bool DishwasherManager::FindCheapestStart(uint32_t & delayS) const
@@ -322,7 +408,7 @@ bool DishwasherManager::FindCheapestStart(uint32_t & delayS) const
         add(entry);
     }
 
-    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), now, GetProgramDuration(),
+    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), GetPowerProfile(), now,
                                        kStartHorizonS, delayS);
 }
 
@@ -350,7 +436,7 @@ bool DishwasherManager::FindGreenestStart(uint32_t & delayS) const
         add(entry);
     }
 
-    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), now, GetProgramDuration(),
+    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), GetPowerProfile(), now,
                                        kStartHorizonS, delayS);
 }
 
@@ -543,23 +629,19 @@ void DishwasherManager::ProgressProgram()
         return;
     }
 
-    uint8_t currentPhase = 0;
-
-    if (mRunningTimeRemaining < 5)
+    // The phase follows the program's steps.
+    const Program & program = kPrograms[mMode];
+    uint32_t elapsedS       = GetProgramDuration() - mRunningTimeRemaining;
+    uint8_t currentPhase    = program.steps[program.count - 1].phase;
+    for (size_t i = 0; i < program.count; i++)
     {
-        currentPhase = 4;
-    }
-    else if (mRunningTimeRemaining < 10)
-    {
-        currentPhase = 3;
-    }
-    else if (mRunningTimeRemaining < 15)
-    {
-        currentPhase = 2;
-    }
-    else if (mRunningTimeRemaining < 20)
-    {
-        currentPhase = 1;
+        const uint32_t stepS = program.steps[i].minutes * 60u;
+        if (elapsedS < stepS)
+        {
+            currentPhase = program.steps[i].phase;
+            break;
+        }
+        elapsedS -= stepS;
     }
 
     OperationalState::GetInstance()->UpdateCountdownTimeFromDelegate();
@@ -637,16 +719,20 @@ void DishwasherManager::SetForecast()
     sForecastStruct.isPausable = false;         // We cannot pause any of the slots in this forecast.
     sForecastStruct.activeSlotNumber.SetNull(); // TODO Change this accordingly as the program progresses.
 
-    // The number of slots mirrors the selected mode (Eco is one slot, Chef is 2 and Quick is three).
-    size_t slotCount = mMode + 1u;
+    // One slot per program step.
+    const Program & program = kPrograms[mMode];
+    size_t slotCount        = program.count;
     for (size_t i = 0; i < slotCount; i++)
     {
-        sSlots[i].minDuration     = kSlotDurationS;
-        sSlots[i].maxDuration     = kSlotDurationS;
-        sSlots[i].defaultDuration = kSlotDurationS;
-        sSlots[i].nominalPower.SetValue(kSlotPowerMw);
-        sSlots[i].minPower.SetValue(kSlotPowerMw);
-        sSlots[i].maxPower.SetValue(kSlotPowerMw);
+        const uint32_t durationS = program.steps[i].minutes * 60u;
+        const int64_t powerMw    = program.steps[i].powerW * 1000;
+
+        sSlots[i].minDuration     = durationS;
+        sSlots[i].maxDuration     = durationS;
+        sSlots[i].defaultDuration = durationS;
+        sSlots[i].nominalPower.SetValue(powerMw);
+        sSlots[i].minPower.SetValue(powerMw);
+        sSlots[i].maxPower.SetValue(powerMw);
     }
 
     sForecastStruct.slots = DataModel::List<const DeviceEnergyManagement::Structs::SlotStruct::Type>(sSlots, slotCount);

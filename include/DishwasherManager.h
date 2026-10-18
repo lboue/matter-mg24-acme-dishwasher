@@ -1,5 +1,6 @@
 #pragma once
 
+#include "StartPlanner.h"
 #include "StatusDisplay.h"
 
 #include <app/clusters/operational-state-server/operational-state-server.h>
@@ -78,6 +79,7 @@ private:
     bool FindCheapestStart(uint32_t & delayS) const;
     bool FindGreenestStart(uint32_t & delayS) const;
     uint32_t GetProgramDuration() const;
+    chip::Span<const StartPlanner::Step> GetPowerProfile() const;
     void ProgressProgram();
     void EndProgram();
     void UpdateOperationState(OperationalStateEnum state);

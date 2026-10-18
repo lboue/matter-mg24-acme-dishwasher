@@ -39,7 +39,7 @@ CHIP_ERROR DeviceEnergyManagement::EnergyManagementInit()
     TEMPORARY_RETURN_IGNORED gDEMDelegate->SetESACanGenerate(false);
     TEMPORARY_RETURN_IGNORED gDEMDelegate->SetESAState(ESAStateEnum::kOnline);
     TEMPORARY_RETURN_IGNORED gDEMDelegate->SetAbsMinPower(0);
-    TEMPORARY_RETURN_IGNORED gDEMDelegate->SetAbsMaxPower(3'000'000); // 3 kW, the power used in each forecast slot
+    TEMPORARY_RETURN_IGNORED gDEMDelegate->SetAbsMaxPower(2'000'000); // 2 kW, the heater, the highest power in any program's forecast
     TEMPORARY_RETURN_IGNORED gDEMDelegate->SetOptOutState(OptOutStateEnum::kOptOut);
 
     return CHIP_NO_ERROR;

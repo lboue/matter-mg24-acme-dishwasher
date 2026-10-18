@@ -57,7 +57,7 @@ CHIP_ERROR ModeHandler(int argc, char ** argv)
 {
     if (argc != 1)
     {
-        streamer_printf(streamer_get(), "Usage: dishwasher mode next|0|1|2\r\n");
+        streamer_printf(streamer_get(), "Usage: dishwasher mode next|0|1|2|3\r\n");
         return CHIP_ERROR_INVALID_ARGUMENT;
     }
 
@@ -211,7 +211,7 @@ void RegisterDishwasherShellCommands()
         { &PowerHandler, "power", "Toggle power (On/Off)" },
         { &StartHandler, "start", "Start / pause / resume the program" },
         { &CancelHandler, "cancel", "Cancel the current program" },
-        { &ModeHandler, "mode", "Select the program: next|0 (Eco)|1 (Chef)|2 (Quick)" },
+        { &ModeHandler, "mode", "Select the program: next|0 (Eco)|1 (Chef)|2 (Quick)|3 (Intensive)" },
         { &OptInHandler, "optin", "Energy management opt-in: on|off" },
         { &StatusHandler, "status", "Log the current state" },
         { &PriceHandler, "price", "Log the current and forecast electricity price" },

@@ -60,22 +60,36 @@ bool Cost(chip::Span<const Period> periods, uint32_t start, uint32_t end, int64_
 }
 } // namespace
 
-bool FindBestStart(chip::Span<const Period> periods, uint32_t now, uint32_t durationS, uint32_t horizonS, uint32_t & delayS)
+bool FindBestStart(chip::Span<const Period> periods, chip::Span<const Step> profile, uint32_t now, uint32_t horizonS,
+                   uint32_t & delayS)
 {
+    uint32_t durationS = 0;
+    for (const auto & step : profile)
+    {
+        durationS += step.durationS;
+    }
+
     bool found        = false;
     uint32_t bestTime = 0;
     int64_t bestCost  = 0;
 
     auto consider = [&](uint32_t start) {
-        if (start - now + durationS > horizonS)
+        if (start < now || start - now + durationS > horizonS)
         {
             return;
         }
 
-        int64_t cost = 0;
-        if (!Cost(periods, start, start + durationS, cost))
+        int64_t cost    = 0;
+        uint32_t stepAt = start;
+        for (const auto & step : profile)
         {
-            return;
+            int64_t stepCost = 0;
+            if (!Cost(periods, stepAt, stepAt + step.durationS, stepCost))
+            {
+                return;
+            }
+            cost += stepCost * step.power;
+            stepAt += step.durationS;
         }
 
         if (!found || cost < bestCost || (cost == bestCost && start < bestTime))
@@ -86,12 +100,26 @@ bool FindBestStart(chip::Span<const Period> periods, uint32_t now, uint32_t dura
         }
     };
 
+    // Lines each step up with each period boundary, so a heating step can land on a cheap period.
+    auto considerBoundary = [&](uint32_t boundary) {
+        uint32_t offset = 0;
+        for (const auto & step : profile)
+        {
+            if (boundary >= offset)
+            {
+                consider(boundary - offset);
+            }
+            offset += step.durationS;
+        }
+    };
+
     consider(now);
     for (const auto & period : periods)
     {
-        if (period.start > now)
+        considerBoundary(period.start);
+        if (period.end != 0)
         {
-            consider(period.start);
+            considerBoundary(period.end);
         }
     }
 

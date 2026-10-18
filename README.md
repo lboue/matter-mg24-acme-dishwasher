@@ -89,7 +89,7 @@ A KY-040 style encoder with a push switch. Only EXP10 is otherwise free (EXP5 an
 | + | 3V3 | |
 | GND | GND | |
 
-With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick and **Settings**. Settings isn't a program: clicking it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it.
+With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick, Intensive and **Settings**. Settings isn't a program: clicking it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it.
 
 Clicking a program starts it:
 
@@ -110,7 +110,7 @@ Connect to the VCOM serial port at 115200 baud. The shell runs on the same conso
 dishwasher power          # toggle On/Off
 dishwasher start          # start / pause / resume
 dishwasher cancel
-dishwasher mode next|0|1|2
+dishwasher mode next|0|1|2|3
 dishwasher optin on|off
 dishwasher status
 dishwasher price          # current and forecast electricity price
@@ -173,7 +173,18 @@ chip-tool deviceenergymanagement start-time-adjust-request <matter-epoch-s> 1 0x
 
 ## Device Energy Management
 
-As on the ESP32, starting a program publishes a forecast with one slot per program step: Eco has one 30-minute slot, Chef two and Quick three, each at 3 kW. When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. The same applies to a Cheapest or Greenest start. The forecast's earliest start is now and its latest end is 24 h away. A program started with **Now** on the encoder has no start window, and adjustments are refused.
+Starting a program publishes a forecast with one slot per program step. The programs are shaped like real ones: the 2 kW heater only runs while it heats water for the main wash and the final rinse, and the pump draws 0.1–0.2 kW the rest of the time. Lengths and energy match published figures for each kind of program:
+
+| Program | Length | Energy | Steps (minutes at kW) |
+| ------- | ------ | ------ | --------------------- |
+| Eco 50° | 3 h 30 | 0.91 kWh | pre-soak 15 at 0.1, **heat 12 at 2**, wash 60 at 0.15, rinse 30 at 0.1, **hot rinse 8 at 2**, dry 85 at 0.01 |
+| Chef 70° | 2 h 15 | 1.67 kWh | pre-soak 10 at 0.1, **heat 18 at 2**, wash 40 at 0.2, rinse 15 at 0.1, **hot rinse 20 at 2**, hold 10 at 0.5, heated dry 22 at 0.4 |
+| Quick 45° | 0 h 30 | 0.53 kWh | **heat 9 at 2**, wash 12 at 0.15, **hot rinse 6 at 2**, drain 3 at 0.05 |
+| Intensive 65° | 2 h 00 | 1.34 kWh | **heated pre-wash 8 at 2**, **heat 15 at 2**, wash 35 at 0.2, rinse 15 at 0.1, **hot rinse 12 at 2**, dry 35 at 0.05 |
+
+The Operational State phase (pre-soak, main-wash, rinse, final-rinse, drying) follows the steps. The programs are defined in `kPrograms` in `src/DishwasherManager.cpp`. Cheapest and Greenest weight each step by its power, so they try to put the heating steps in the cheapest or greenest periods.
+
+When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. The same applies to a Cheapest or Greenest start. The forecast's earliest start is now and its latest end is 24 h away. A program started with **Now** on the encoder has no start window, and adjustments are refused.
 
 ## Commodity Price
 
@@ -211,7 +222,7 @@ Reading another device needs the Matter read client (`matter_read_client`), whic
 - **Dead Front.** Start, Pause and Resume are rejected with `CommandInvalidInState` while the dishwasher is off, which closes the README's "I don't ignore commands when the device is off" gap. Dishwasher Mode changes are rejected while a program is running.
 - **Mode on stop.** Stopping resets the program to Eco, as before, but now also updates the Dishwasher Mode cluster's `CurrentMode`. Before, only the internal state was reset.
 - **Program end.** Finishing a program emits the Operational State `OperationCompletion` event (it was a TODO).
-- **DEM.** The SDK's reference DEM delegate now owns the Forecast and OptOutState attributes. The forecast ID increments on each new forecast, and the forecast is cleared to `null` (rather than zeroed) when the program stops. AbsMaxPower is 3 kW, to match the slots (it was 1 W). Start-time adjustment is refused when you are not opted in, the program has already started, or the time is unknown.
+- **DEM.** The SDK's reference DEM delegate now owns the Forecast and OptOutState attributes. The forecast ID increments on each new forecast, and the forecast is cleared to `null` (rather than zeroed) when the program stops. AbsMaxPower is 2 kW, the heater (it was 1 W). Start-time adjustment is refused when you are not opted in, the program has already started, or the time is unknown.
 - **CountdownTime** is `null` when no program is selected, and includes the delayed-start time.
 - **Display.** The ESP32 drew the OLED with LVGL. Here a small built-in SSD1306 driver (`src/Ssd1306.cpp`) draws it, with a 5x7 font, and only sends the parts of the screen that change. There is no menu or reset screen, because those are shell commands and BTN0 here.
-- **Phases** still change only in the last 20 seconds of a program, exactly as in the ESP32 code.
+- **Programs.** Each program has a realistic power profile, and the phases follow it. On the ESP32, every slot was 3 kW and the phases changed only in the last 20 seconds. There's also a fourth program, Intensive 65°.

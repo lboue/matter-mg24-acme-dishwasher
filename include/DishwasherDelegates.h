@@ -44,25 +44,27 @@ OperationalStateDelegate * GetDelegate();
 
 namespace DishwasherMode {
 
-const uint8_t ModeNormal = 0;
-const uint8_t ModeHeavy  = 1;
-const uint8_t ModeLight  = 2;
+const uint8_t ModeNormal    = 0;
+const uint8_t ModeHeavy     = 1;
+const uint8_t ModeLight     = 2;
+const uint8_t ModeIntensive = 3;
 
 class DishwasherModeDelegate : public ModeBase::Delegate
 {
 public:
     CHIP_ERROR GetModeLabelByIndex(uint8_t modeIndex, MutableCharSpan & label) override;
 
-    static constexpr uint8_t kModeCount = 3;
+    static constexpr uint8_t kModeCount = 4;
 
 private:
-    using ModeTagStructType               = detail::Structs::ModeTagStruct::Type;
-    ModeTagStructType modeTagsNormal[1] = { { .value = to_underlying(ModeTag::kNormal) } };
-    ModeTagStructType modeTagsHeavy[2]  = { { .value = to_underlying(ModeBase::ModeTag::kMax) },
-                                            { .value = to_underlying(ModeTag::kHeavy) } };
-    ModeTagStructType modeTagsLight[3]  = { { .value = to_underlying(ModeTag::kLight) },
-                                            { .value = to_underlying(ModeBase::ModeTag::kNight) },
-                                            { .value = to_underlying(ModeBase::ModeTag::kQuiet) } };
+    using ModeTagStructType                  = detail::Structs::ModeTagStruct::Type;
+    ModeTagStructType modeTagsNormal[1]    = { { .value = to_underlying(ModeTag::kNormal) } };
+    ModeTagStructType modeTagsHeavy[2]     = { { .value = to_underlying(ModeBase::ModeTag::kMax) },
+                                               { .value = to_underlying(ModeTag::kHeavy) } };
+    ModeTagStructType modeTagsLight[3]     = { { .value = to_underlying(ModeTag::kLight) },
+                                               { .value = to_underlying(ModeBase::ModeTag::kNight) },
+                                               { .value = to_underlying(ModeBase::ModeTag::kQuiet) } };
+    ModeTagStructType modeTagsIntensive[1] = { { .value = to_underlying(ModeTag::kHeavy) } };
 
     // These are the modes on my dishwasher.
     // TODO Implement these with the appropriate ModeTags.
@@ -85,7 +87,10 @@ private:
                                                  .modeTags = DataModel::List<const ModeTagStructType>(modeTagsHeavy) },
         detail::Structs::ModeOptionStruct::Type{ .label    = CharSpan::fromCharString("Quick 45°"),
                                                  .mode     = ModeLight,
-                                                 .modeTags = DataModel::List<const ModeTagStructType>(modeTagsLight) }
+                                                 .modeTags = DataModel::List<const ModeTagStructType>(modeTagsLight) },
+        detail::Structs::ModeOptionStruct::Type{ .label    = CharSpan::fromCharString("Intensive 65°"),
+                                                 .mode     = ModeIntensive,
+                                                 .modeTags = DataModel::List<const ModeTagStructType>(modeTagsIntensive) }
     };
 
     CHIP_ERROR Init() override;
