@@ -211,7 +211,7 @@ void RegisterDishwasherShellCommands()
         { &PowerHandler, "power", "Toggle power (On/Off)" },
         { &StartHandler, "start", "Start / pause / resume the program" },
         { &CancelHandler, "cancel", "Cancel the current program" },
-        { &ModeHandler, "mode", "Select the program: next|0 (Eco)|1 (Chef)|2 (Quick)|3 (Intensive)" },
+        { &ModeHandler, "mode", "Select the program: next|0 (Eco)|1 (Chef)|2 (Quick)|3 (Heavy)" },
         { &OptInHandler, "optin", "Energy management opt-in: on|off" },
         { &StatusHandler, "status", "Log the current state" },
         { &PriceHandler, "price", "Log the current and forecast electricity price" },

@@ -89,7 +89,7 @@ A KY-040 style encoder with a push switch. Only EXP10 is otherwise free (EXP5 an
 | + | 3V3 | |
 | GND | GND | |
 
-With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick, Intensive and **Settings**. Settings isn't a program: clicking it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it.
+With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick, Heavy and **Settings**. Settings isn't a program: clicking it opens the **Energy Mgr** menu, where turning chooses Opt Out (left) or Opt In (right) and clicking closes it.
 
 Clicking a program starts it:
 
@@ -180,7 +180,7 @@ Starting a program publishes a forecast with one slot per program step. The prog
 | Eco 50° | 3 h 30 | 0.91 kWh | pre-soak 15 at 0.1, **heat 12 at 2**, wash 60 at 0.15, rinse 30 at 0.1, **hot rinse 8 at 2**, dry 85 at 0.01 |
 | Chef 70° | 2 h 15 | 1.67 kWh | pre-soak 10 at 0.1, **heat 18 at 2**, wash 40 at 0.2, rinse 15 at 0.1, **hot rinse 20 at 2**, hold 10 at 0.5, heated dry 22 at 0.4 |
 | Quick 45° | 0 h 30 | 0.53 kWh | **heat 9 at 2**, wash 12 at 0.15, **hot rinse 6 at 2**, drain 3 at 0.05 |
-| Intensive 65° | 2 h 00 | 1.34 kWh | **heated pre-wash 8 at 2**, **heat 15 at 2**, wash 35 at 0.2, rinse 15 at 0.1, **hot rinse 12 at 2**, dry 35 at 0.05 |
+| Heavy 65° | 2 h 00 | 1.34 kWh | **heated pre-wash 8 at 2**, **heat 15 at 2**, wash 35 at 0.2, rinse 15 at 0.1, **hot rinse 12 at 2**, dry 35 at 0.05 |
 
 The Operational State phase (pre-soak, main-wash, rinse, final-rinse, drying) follows the steps. The programs are defined in `kPrograms` in `src/DishwasherManager.cpp`. Cheapest and Greenest weight each step by its power, so they try to put the heating steps in the cheapest or greenest periods.
 
@@ -225,4 +225,4 @@ Reading another device needs the Matter read client (`matter_read_client`), whic
 - **DEM.** The SDK's reference DEM delegate now owns the Forecast and OptOutState attributes. The forecast ID increments on each new forecast, and the forecast is cleared to `null` (rather than zeroed) when the program stops. AbsMaxPower is 2 kW, the heater (it was 1 W). Start-time adjustment is refused when you are not opted in, the program has already started, or the time is unknown.
 - **CountdownTime** is `null` when no program is selected, and includes the delayed-start time.
 - **Display.** The ESP32 drew the OLED with LVGL. Here a small built-in SSD1306 driver (`src/Ssd1306.cpp`) draws it, with a 5x7 font, and only sends the parts of the screen that change. There is no menu or reset screen, because those are shell commands and BTN0 here.
-- **Programs.** Each program has a realistic power profile, and the phases follow it. On the ESP32, every slot was 3 kW and the phases changed only in the last 20 seconds. There's also a fourth program, Intensive 65°.
+- **Programs.** Each program has a realistic power profile, and the phases follow it. On the ESP32, every slot was 3 kW and the phases changed only in the last 20 seconds. There's also a fourth program, Heavy 65°.

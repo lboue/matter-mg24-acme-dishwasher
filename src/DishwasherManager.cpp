@@ -75,7 +75,7 @@ constexpr ProgramStep kQuickSteps[] = {
 };
 
 // 120 min, 1.34 kWh. A heated pre-wash, a 65° wash and a hot final rinse.
-constexpr ProgramStep kIntensiveSteps[] = {
+constexpr ProgramStep kHeavySteps[] = {
     { 8, 2000, kPreSoak }, { 15, 2000, kMainWash },   { 35, 200, kMainWash },
     { 15, 100, kRinse },   { 12, 2000, kFinalRinse }, { 35, 50, kDrying },
 };
@@ -97,12 +97,12 @@ constexpr Program kPrograms[DishwasherMode::DishwasherModeDelegate::kModeCount] 
     MakeProgram(kEcoSteps),
     MakeProgram(kChefSteps),
     MakeProgram(kQuickSteps),
-    MakeProgram(kIntensiveSteps),
+    MakeProgram(kHeavySteps),
 };
 
 constexpr size_t kMaxProgramSteps = 7;
 static_assert(MATTER_ARRAY_SIZE(kEcoSteps) <= kMaxProgramSteps && MATTER_ARRAY_SIZE(kChefSteps) <= kMaxProgramSteps &&
-              MATTER_ARRAY_SIZE(kQuickSteps) <= kMaxProgramSteps && MATTER_ARRAY_SIZE(kIntensiveSteps) <= kMaxProgramSteps);
+              MATTER_ARRAY_SIZE(kQuickSteps) <= kMaxProgramSteps && MATTER_ARRAY_SIZE(kHeavySteps) <= kMaxProgramSteps);
 
 // How far ahead a program may be moved, matching the forecast's latestEndTime.
 constexpr uint32_t kStartHorizonS = 86400;
@@ -577,11 +577,11 @@ void DishwasherManager::StopProgram()
     UpdateCurrentPhase(0);
 
     // Back to the default program, and keep the DishwasherMode cluster in step.
-    if (mMode != DishwasherMode::ModeNormal && DishwasherMode::GetInstance() != nullptr)
+    if (mMode != DishwasherMode::ModeEco && DishwasherMode::GetInstance() != nullptr)
     {
-        TEMPORARY_RETURN_IGNORED DishwasherMode::GetInstance()->UpdateCurrentMode(DishwasherMode::ModeNormal);
+        TEMPORARY_RETURN_IGNORED DishwasherMode::GetInstance()->UpdateCurrentMode(DishwasherMode::ModeEco);
     }
-    UpdateMode(DishwasherMode::ModeNormal);
+    UpdateMode(DishwasherMode::ModeEco);
 
     UpdateOperationState(OperationalStateEnum::kStopped);
     ClearForecast();
