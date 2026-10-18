@@ -2,7 +2,10 @@
 
 A port of [matter-esp32-tiny-dishwasher](../matter-esp32-tiny-dishwasher) to the Silicon Labs EFR32MG24, running Matter over Thread on the **xG24 Dev Kit (BRD2601B)**.
 
-It implements the Matter Dishwasher device type, with the mandatory Operational State cluster, the optional On/Off (Dead Front) and Dishwasher Mode clusters, and a Device Energy Management endpoint that publishes a power forecast and accepts start-time adjustments.
+It implements the Matter Dishwasher device type, with:
+- the mandatory `Operational State` cluster
+- the optional `On/Off` (Dead Front) and `Dishwasher Mode` clusters,
+- a `Device Energy Management` endpoint that publishes a power forecast and accepts start-time adjustments
 
 It is based on the Silicon Labs `matter_thread_soc_dishwasher_app_freertos` sample (Simplicity SDK 2026.6.0, Matter extension 2.9.0). The dishwasher logic itself comes from the ESP32 version.
 
