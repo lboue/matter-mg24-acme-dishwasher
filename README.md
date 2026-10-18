@@ -60,7 +60,7 @@ A 1.3" 128x64 SH1106 I2C OLED (the common 4-pin VCC/GND/SCL/SDA module; 0.96" SS
 The 7-pin modules (with D0, D1, RES, DC and CS) come set for SPI. Even converted to I2C (R3 moved to R1, R8 bridged, DC and CS grounded), the one tried here never ACKed, so use a 4-pin module.
 
 The OLED shows:
-- **Normal screen:** the state in an inverted title bar, with the time remaining at the right while a program runs. Below that: the program in large text, then the phase, the price and the energy-management opt-in.
+- **Normal screen:** the state in an inverted title bar, with **EM** at the right when you've opted into energy management. Below that: the program in large text, the phase, the time left while a program runs, and the price on the bottom row.
 - **Delayed start:** a large countdown, with the program and the price below it.
 
 The display is off while the dishwasher is off.

@@ -80,20 +80,28 @@ void DrawDelayedStart(bool hasOptedIn, uint32_t startsIn, const char * modeText,
 void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText, const char * modeText, const char * phaseText,
                 const char * priceText, const char * hint)
 {
-    char remaining[16] = "";
-    if (timeRemaining > 0)
-    {
-        FormatDuration(timeRemaining, remaining, sizeof(remaining));
-    }
-
-    DrawTitleBar(stateText, remaining[0] != '\0' ? remaining : nullptr);
+    DrawTitleBar(stateText, hasOptedIn ? "EM" : nullptr);
 
     const uint8_t modeScale = Ssd1306::TextWidth(modeText, 2) <= Ssd1306::kWidth ? 2 : 1;
     sOled.DrawText(0, kModeY, modeText, modeScale);
 
     sOled.DrawText(0, kPhaseY, phaseText);
-    sOled.DrawText(0, kLine6Y, priceText);
-    sOled.DrawText(0, kLine7Y, hint != nullptr ? hint : (hasOptedIn ? "EM opt-in" : "EM opt-out"));
+
+    // The time left while a program runs. Settings can only be selected when none is, so its hint
+    // shares the row.
+    if (timeRemaining > 0)
+    {
+        char remaining[24];
+        FormatDuration(timeRemaining, remaining, sizeof(remaining));
+        strncat(remaining, " left", sizeof(remaining) - strlen(remaining) - 1);
+        sOled.DrawText(0, kLine6Y, remaining);
+    }
+    else if (hint != nullptr)
+    {
+        sOled.DrawText(0, kLine6Y, hint);
+    }
+
+    sOled.DrawText(0, kLine7Y, priceText);
 }
 
 // Draws one menu choice in a box, inverted when selected.
