@@ -557,6 +557,7 @@ void DishwasherManager::UpdateReadyBy()
 
     mReadyByHasStart = false;
     mSavingText[0]   = '\0';
+    mCheapSpanCount  = 0;
 
     Span<const StartPlanner::Period> periods;
     uint32_t now       = 0;
@@ -577,6 +578,8 @@ void DishwasherManager::UpdateReadyBy()
 
     mReadyByHasStart = true;
     mReadyByDelayS   = delayS;
+
+    UpdateCheapSpans(periods, now);
 
     // When opted in, an energy manager may move the start, so there's no saving to promise.
     if (!mOptedIntoEnergyManagement)
@@ -756,6 +759,67 @@ void DishwasherManager::UpdateSmartSaving()
     }
 
     FormatSaving(periods, now, mDelayedStartTimeRemaining);
+}
+
+// The periods in the next day in the cheapest quarter (by price, or carbon intensity), as merged
+// spans of seconds from now, for shading on the Ready By timeline.
+void DishwasherManager::UpdateCheapSpans(Span<const StartPlanner::Period> periods, uint32_t now)
+{
+    mCheapSpanCount = 0;
+
+    const uint32_t end = now + kStartHorizonS;
+    auto inNextDay     = [now, end](const StartPlanner::Period & period) {
+        return period.start < end && (period.end == 0 || period.end > now);
+    };
+
+    int64_t values[1 + PriceSubscriber::kMaxForecastEntries];
+    size_t count = 0;
+    for (const auto & period : periods)
+    {
+        if (inNextDay(period) && count < MATTER_ARRAY_SIZE(values))
+        {
+            values[count++] = period.value;
+        }
+    }
+    if (count < 2)
+    {
+        return;
+    }
+
+    // Nothing stands out if every period is the same.
+    const auto [lowest, highest] = std::minmax_element(values, values + count);
+    if (*lowest == *highest)
+    {
+        return;
+    }
+
+    std::nth_element(values, values + count / 4, values + count);
+    const int64_t threshold = values[count / 4];
+
+    for (const auto & period : periods)
+    {
+        if (!inNextDay(period) || period.value > threshold)
+        {
+            continue;
+        }
+
+        const uint32_t startS = (period.start > now ? period.start : now) - now;
+        const uint32_t endS   = ((period.end == 0 || period.end > end) ? end : period.end) - now;
+
+        // Merge with the last span if they touch or overlap (the current period repeats the first
+        // forecast entry).
+        if (mCheapSpanCount > 0 && startS <= mCheapSpans[mCheapSpanCount - 1].endS &&
+            endS >= mCheapSpans[mCheapSpanCount - 1].startS)
+        {
+            auto & last = mCheapSpans[mCheapSpanCount - 1];
+            last.startS = std::min(last.startS, startS);
+            last.endS   = std::max(last.endS, endS);
+        }
+        else if (mCheapSpanCount < StatusDisplay::kMaxCheapSpans)
+        {
+            mCheapSpans[mCheapSpanCount++] = { startS, endS };
+        }
+    }
 }
 
 // Sets mSavingText to what starting delayS from now saves compared with starting now.
@@ -1203,6 +1267,11 @@ void DishwasherManager::UpdateDishwasherDisplay()
                                                                              : 0;
     }
     view.hasClock            = view.readyByClock != 0;
+    view.cheapSpans          = mCheapSpans;
+    view.cheapSpanCount      = mCheapSpanCount;
+    // When opted in, an energy manager may move the start, so there's no plan to show.
+    view.hasPlannedRun       = mReadyByHasStart && !mOptedIntoEnergyManagement;
+    view.plannedRun          = { mReadyByDelayS, mReadyByDelayS + GetProgramDuration() };
     view.selectedMenuItem    = mMenuItem;
     view.qrCode              = mQrCode;
     view.manualCode          = mManualCode;

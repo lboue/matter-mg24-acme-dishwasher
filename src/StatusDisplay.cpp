@@ -159,17 +159,25 @@ void FormatReadyClock(const char * label, uint32_t clock, char * buffer, size_t 
              static_cast<unsigned>((secondOfDay / 60) % 60));
 }
 
-// When the program must be ready, with a timeline of the next day and an arrow at that time.
-void DrawReadyBy(const char * modeText, uint32_t readyByS, bool hasClock, uint32_t readyByClock, const char * savingText)
+// When the program must be ready, with a timeline of the next day: the cheapest periods dotted
+// above it, the planned run solid on top of them, and an arrow under it at Ready By.
+void DrawReadyBy(const StatusDisplay::View & view)
 {
     constexpr int kLineLeft  = 2;
     constexpr int kLineRight = Ssd1306::kWidth - 3;
     constexpr int kLineY     = 46;
+    constexpr int kBandTop   = 38;
+    constexpr int kBandRows  = 6;
     constexpr uint32_t kDayS = 24 * 60 * 60;
+
+    auto toX = [](uint32_t secondsFromNow) {
+        return kLineLeft +
+            static_cast<int>(static_cast<uint64_t>(secondsFromNow < kDayS ? secondsFromNow : kDayS) * (kLineRight - kLineLeft) / kDayS);
+    };
 
     // e.g. "START - ECO 50°". Only ASCII letters are capitalised, so the degree sign survives.
     char title[32];
-    snprintf(title, sizeof(title), "START - %s", modeText);
+    snprintf(title, sizeof(title), "START - %s", view.modeText);
     for (char * c = title; *c != '\0'; c++)
     {
         if (*c >= 'a' && *c <= 'z')
@@ -181,17 +189,42 @@ void DrawReadyBy(const char * modeText, uint32_t readyByS, bool hasClock, uint32
 
     // A UTC clock time when we know the time, otherwise how long from now.
     char readyText[24];
-    if (hasClock)
+    if (view.hasClock)
     {
-        FormatReadyClock("Ready by", readyByClock, readyText, sizeof(readyText));
+        FormatReadyClock("Ready by", view.readyByClock, readyText, sizeof(readyText));
     }
     else
     {
-        snprintf(readyText, sizeof(readyText), "Ready in %u:%02u", static_cast<unsigned>(readyByS / 3600),
-                 static_cast<unsigned>((readyByS / 60) % 60));
+        snprintf(readyText, sizeof(readyText), "Ready in %u:%02u", static_cast<unsigned>(view.readyByS / 3600),
+                 static_cast<unsigned>((view.readyByS / 60) % 60));
     }
     sOled.DrawText(0, 16, readyText);
-    sOled.DrawText(0, 28, savingText);
+    sOled.DrawText(0, 28, view.savingText);
+
+    // The cheapest periods, lightly dotted (every other pixel of every other row).
+    for (uint8_t i = 0; i < view.cheapSpanCount; i++)
+    {
+        const int left  = toX(view.cheapSpans[i].startS);
+        const int right = std::max(toX(view.cheapSpans[i].endS) - 1, left);
+        for (int x = left; x <= right; x++)
+        {
+            for (int y = kBandTop; y < kBandTop + kBandRows; y++)
+            {
+                if (x % 2 == 0 && y % 2 == 0)
+                {
+                    sOled.FillRect(x, y, 1, 1, true);
+                }
+            }
+        }
+    }
+
+    // The planned run, solid, so turning the knob shows it moving into the cheap periods.
+    if (view.hasPlannedRun)
+    {
+        const int left  = toX(view.plannedRun.startS);
+        const int right = std::max(toX(view.plannedRun.endS) - 1, left);
+        sOled.FillRect(left, kBandTop, right - left + 1, kBandRows, true);
+    }
 
     // The timeline, now at the left and a day ahead at the right, with a tick at each end.
     sOled.FillRect(kLineLeft, kLineY, kLineRight - kLineLeft + 1, 1, true);
@@ -199,8 +232,7 @@ void DrawReadyBy(const char * modeText, uint32_t readyByS, bool hasClock, uint32
     sOled.FillRect(kLineRight, kLineY - 2, 1, 5, true);
 
     // An arrow under the line, pointing up at Ready By.
-    const int arrowX =
-        kLineLeft + static_cast<int>(static_cast<uint64_t>(std::min(readyByS, kDayS)) * (kLineRight - kLineLeft) / kDayS);
+    const int arrowX = toX(view.readyByS);
     for (int row = 0; row < 3; row++)
     {
         sOled.FillRect(arrowX - row, kLineY + 3 + row, 2 * row + 1, 1, true);
@@ -390,7 +422,7 @@ void StatusDisplay::UpdateDisplay(const View & view)
     {
         snprintf(status, sizeof(status), "READY BY | %s | in %lus | %s", view.modeText, static_cast<unsigned long>(view.readyByS),
                  view.savingText);
-        DrawReadyBy(view.modeText, view.readyByS, view.hasClock, view.readyByClock, view.savingText);
+        DrawReadyBy(view);
     }
     else if (view.isProgramSelected && view.startsIn > 0)
     {

@@ -29,6 +29,15 @@ public:
         kSmartStart,    // When a scheduled start will begin and what it saves, with Cancel
     };
 
+    // A stretch of the Ready By timeline, in seconds from now.
+    struct TimelineSpan
+    {
+        uint32_t startS = 0;
+        uint32_t endS   = 0;
+    };
+
+    static constexpr uint8_t kMaxCheapSpans = 12;
+
     // The rows on the Settings page, and on the Energy Mgmt page.
     enum SettingsItem : uint8_t
     {
@@ -61,6 +70,12 @@ public:
         uint32_t readyByS     = 0;     // On kReadyBy: how long from now it must be ready
         bool hasClock         = false; // Whether readyByClock is known
         uint32_t readyByClock = 0;     // Matter epoch seconds: Ready By, or on kSmartStart, when it will finish
+
+        // On kReadyBy: the cheapest periods, shaded on the timeline, and the planned run, drawn solid.
+        const TimelineSpan * cheapSpans = nullptr;
+        uint8_t cheapSpanCount          = 0;
+        bool hasPlannedRun              = false;
+        TimelineSpan plannedRun;
 
         uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu; on kSmartStart, 1 is Cancel
 

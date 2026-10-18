@@ -102,13 +102,15 @@ Clicking a program opens the **START** screen, where you set when the dishes mus
 
 ```
 START - ECO 50°
-Ready by 17:30 UTC
+Ready by 06:30 UTC
 Saves 0.18 GBP
+          ░░░░░░            cheapest periods (dotted)
+     ████ ░░░░░░            planned run (solid)
 ├──────────────────────┤
-      ▲
+              ▲
 ```
 
-- **Ready By** starts at the earliest the program could finish (now plus its run time, rounded up to 15 minutes). Turn the knob to move it later or earlier in 15-minute steps, up to 24 hours ahead. The arrow under the line shows where it is in the next 24 hours. The time is in UTC, because the device has no time zone. Until the clock is set, it shows `Ready in 3:30` instead.
+- **Ready By** starts at the earliest the program could finish (now plus its run time, rounded up to 15 minutes). Turn the knob to move it later or earlier in 15-minute steps, up to 24 hours ahead. The arrow under the line shows where it is in the next 24 hours. Above the line, the cheapest quarter of the forecast periods (by price, or by carbon intensity with only grid data) is lightly dotted. When you're opted out, the planned run is drawn as a solid block on top, so as you turn, you can see it move into the cheap periods. The time is in UTC, because the device has no time zone. Until the clock is set, it shows `Ready in 3:30` instead.
 - **Click** to start at the best time that still finishes by then: the cheapest, from the current price and the price forecast, or with no price forecast, the lowest carbon intensity from the grid-conditions forecast. With neither (or no clock), it starts straight away.
 - **When you're opted out of energy management**, a line under the time shows what the best start saves compared with starting now (`Saves 0.18 GBP`, `Saves 120 gCO2` or `No saving`). It updates as you turn. When you're opted in, it's blank, because the energy manager may move the start.
 - **After the click**, if you're opted in, an **Optimizing…** screen shows for 5 seconds, so an energy manager can move the start (`StartTimeAdjustRequest`). The program is scheduled at the cheapest start, but held until Optimizing ends, even if that start is now. So with no adjustment it runs at the cheapest time, at most a few seconds late. The DEM forecast's `latestEndTime` is the Ready By time, and adjustments that would finish later are refused.

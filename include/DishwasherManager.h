@@ -87,6 +87,7 @@ private:
     void CancelSmartStart();
     void UpdateSmartSaving();
     void FormatSaving(chip::Span<const StartPlanner::Period> periods, uint32_t now, uint32_t delayS);
+    void UpdateCheapSpans(chip::Span<const StartPlanner::Period> periods, uint32_t now);
     uint32_t GetProgramDuration() const;
     chip::Span<const StartPlanner::Step> GetPowerProfile() const;
     void ProgressProgram();
@@ -124,6 +125,10 @@ private:
     bool mReadyByHasStart   = false;
     uint32_t mReadyByDelayS = 0;
     bool mSmartUsesPrice    = false; // Whether that start came from the price, or the grid conditions
+
+    // The cheapest periods in the next day, shaded on the Ready By timeline.
+    StatusDisplay::TimelineSpan mCheapSpans[StatusDisplay::kMaxCheapSpans];
+    uint8_t mCheapSpanCount = 0;
 
     // The deadline of a program started from Ready By, in Matter epoch seconds, or 0 for none. The
     // DEM forecast's latestEndTime, and the limit for energy manager adjustments.
