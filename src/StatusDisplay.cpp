@@ -144,19 +144,28 @@ void DrawBox(int x, int y, int width, const char * text, bool selected)
     sOled.DrawText(x + (width - Ssd1306::TextWidth(text)) / 2, y + kPadding, text, 1, !selected);
 }
 
-// A Cancel box at the bottom right, as on the START and SMART START screens.
+// A Cancel box at the bottom right, as on the SMART START screen.
 void DrawCancel(bool selected)
 {
     constexpr int kCancelWidth = 52;
     DrawBox(Ssd1306::kWidth - kCancelWidth - 2, 46, kCancelWidth, "Cancel", selected);
 }
 
-// The choices side by side in boxes, with Cancel below.
-void DrawStartChoice(const char * modeText, const StatusDisplay::StartChoice * choices, uint8_t count, uint8_t selected)
+// e.g. "Ready by 17:45 UTC", from Matter epoch seconds.
+void FormatReadyClock(const char * label, uint32_t clock, char * buffer, size_t size)
 {
-    constexpr int kMargin   = 4;
-    constexpr int kBoxY     = 16;
-    constexpr int kBoxWidth = (Ssd1306::kWidth - 3 * kMargin) / StatusDisplay::kMaxStartChoices;
+    const uint32_t secondOfDay = clock % (24 * 60 * 60);
+    snprintf(buffer, size, "%s %02u:%02u UTC", label, static_cast<unsigned>(secondOfDay / 3600),
+             static_cast<unsigned>((secondOfDay / 60) % 60));
+}
+
+// When the program must be ready, with a timeline of the next day and an arrow at that time.
+void DrawReadyBy(const char * modeText, uint32_t readyByS, bool hasClock, uint32_t readyByClock, const char * savingText)
+{
+    constexpr int kLineLeft  = 2;
+    constexpr int kLineRight = Ssd1306::kWidth - 3;
+    constexpr int kLineY     = 46;
+    constexpr uint32_t kDayS = 24 * 60 * 60;
 
     // e.g. "START - ECO 50°". Only ASCII letters are capitalised, so the degree sign survives.
     char title[32];
@@ -170,12 +179,32 @@ void DrawStartChoice(const char * modeText, const StatusDisplay::StartChoice * c
     }
     DrawTitleBar(title, nullptr);
 
-    for (uint8_t i = 0; i < count; i++)
+    // A UTC clock time when we know the time, otherwise how long from now.
+    char readyText[24];
+    if (hasClock)
     {
-        DrawBox(kMargin + i * (kBoxWidth + kMargin), kBoxY, kBoxWidth, choices[i].label, i == selected);
+        FormatReadyClock("Ready by", readyByClock, readyText, sizeof(readyText));
     }
+    else
+    {
+        snprintf(readyText, sizeof(readyText), "Ready in %u:%02u", static_cast<unsigned>(readyByS / 3600),
+                 static_cast<unsigned>((readyByS / 60) % 60));
+    }
+    sOled.DrawText(0, 16, readyText);
+    sOled.DrawText(0, 28, savingText);
 
-    DrawCancel(selected == count);
+    // The timeline, now at the left and a day ahead at the right, with a tick at each end.
+    sOled.FillRect(kLineLeft, kLineY, kLineRight - kLineLeft + 1, 1, true);
+    sOled.FillRect(kLineLeft, kLineY - 2, 1, 5, true);
+    sOled.FillRect(kLineRight, kLineY - 2, 1, 5, true);
+
+    // An arrow under the line, pointing up at Ready By.
+    const int arrowX =
+        kLineLeft + static_cast<int>(static_cast<uint64_t>(std::min(readyByS, kDayS)) * (kLineRight - kLineLeft) / kDayS);
+    for (int row = 0; row < 3; row++)
+    {
+        sOled.FillRect(arrowX - row, kLineY + 3 + row, 2 * row + 1, 1, true);
+    }
 }
 
 void DrawOptimizing(uint8_t dots)
@@ -189,14 +218,23 @@ void DrawOptimizing(uint8_t dots)
     sOled.DrawText(x, 28, text);
 }
 
-void DrawSmartStart(uint32_t startsIn, const char * savingText, bool cancelSelected)
+void DrawSmartStart(uint32_t startsIn, bool hasReadyAt, uint32_t readyAtClock, const char * savingText, bool cancelSelected)
 {
     DrawTitleBar("SMART START", nullptr);
 
     char startsText[32] = "Starts in ";
     FormatDuration(startsIn, startsText + strlen(startsText), sizeof(startsText) - strlen(startsText));
-    sOled.DrawText(0, 14, startsText);
-    sOled.DrawText(0, 26, savingText);
+    sOled.DrawText(0, 13, startsText);
+
+    // When it will actually finish.
+    if (hasReadyAt)
+    {
+        char readyText[24];
+        FormatReadyClock("Ready at", readyAtClock, readyText, sizeof(readyText));
+        sOled.DrawText(0, 23, readyText);
+    }
+
+    sOled.DrawText(0, 33, savingText);
 
     DrawCancel(cancelSelected);
 }
@@ -340,7 +378,7 @@ void StatusDisplay::UpdateDisplay(const View & view)
         snprintf(status, sizeof(status), "SMART START | %s | %s%s", view.modeText, view.savingText,
                  view.selectedMenuItem == 1 ? " | Cancel" : "");
         countdown = view.startsIn;
-        DrawSmartStart(view.startsIn, view.savingText, view.selectedMenuItem == 1);
+        DrawSmartStart(view.startsIn, view.hasClock, view.readyByClock, view.savingText, view.selectedMenuItem == 1);
     }
     else if (view.screen == Screen::kEnergyMenu)
     {
@@ -348,11 +386,11 @@ void StatusDisplay::UpdateDisplay(const View & view)
                  view.selectedMenuItem == kEnergyOptIn ? "Opt In" : "Opt Out", optInText);
         DrawEnergyMenu(view.selectedMenuItem);
     }
-    else if (view.screen == Screen::kStartChoice)
+    else if (view.screen == Screen::kReadyBy)
     {
-        snprintf(status, sizeof(status), "START | %s | %s", view.modeText,
-                 view.selectedStartChoice < view.startChoiceCount ? view.startChoices[view.selectedStartChoice].label : "Cancel");
-        DrawStartChoice(view.modeText, view.startChoices, view.startChoiceCount, view.selectedStartChoice);
+        snprintf(status, sizeof(status), "READY BY | %s | in %lus | %s", view.modeText, static_cast<unsigned long>(view.readyByS),
+                 view.savingText);
+        DrawReadyBy(view.modeText, view.readyByS, view.hasClock, view.readyByClock, view.savingText);
     }
     else if (view.isProgramSelected && view.startsIn > 0)
     {

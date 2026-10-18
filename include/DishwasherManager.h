@@ -25,12 +25,6 @@ public:
 
     static constexpr chip::EndpointId kDishwasherEndpoint = 1;
 
-    enum class StartOption : uint8_t
-    {
-        kNow,
-        kSmart, // The best time, from the price forecast, or else the grid-conditions forecast
-    };
-
     CHIP_ERROR Init();
 
     // Physical controls
@@ -42,7 +36,7 @@ public:
     void SetEnergyManagementOptIn(bool optIn);
     void HandleWheelTurned(int8_t direction);
     void HandleWheelClicked();
-    void HandleWheelLongPressed();
+    void HandleCancelButton();
 
     // Power (driven by the On/Off attribute)
     void TurnOnPower();
@@ -53,7 +47,6 @@ public:
     // StartProgram() is the Matter Start command: when opted in, it waits a minute so an energy
     // manager can move the start.
     void StartProgram();
-    void StartProgram(StartOption option, uint32_t delayS);
     void StopProgram();
     void PauseProgram();
     void ResumeProgram();
@@ -76,19 +69,24 @@ private:
 
     void ToggleProgram();
     void BeginProgram(uint32_t delayS, bool canMoveStart);
-    void OpenStartChoice();
+    void OpenReadyBy();
+    void SetReadyByFromNow(uint32_t secondsFromNow);
+    void RefreshReadyBy();
+    uint32_t EarliestReadyByS() const;
+    void UpdateReadyBy();
+    void StartReadyBy();
     void ShowScreen(StatusDisplay::Screen screen, uint8_t menuItem = 0);
     void OpenCommissioning();
     void CloseCommissioning();
     void CheckCommissioningWindow();
     bool BuildPricePeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
     bool BuildGridPeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
-    bool FindCheapestStart(uint32_t & delayS) const;
-    bool FindGreenestStart(uint32_t & delayS) const;
+
     void TickOptimizing();
     void ShowSmartStart();
     void CancelSmartStart();
     void UpdateSmartSaving();
+    void FormatSaving(chip::Span<const StartPlanner::Period> periods, uint32_t now, uint32_t delayS);
     uint32_t GetProgramDuration() const;
     chip::Span<const StartPlanner::Step> GetPowerProfile() const;
     void ProgressProgram();
@@ -119,13 +117,20 @@ private:
     // last program.
     bool mIsSettingsSelected = false;
 
-    StatusDisplay::StartChoice mStartChoices[StatusDisplay::kMaxStartChoices];
-    StartOption mStartOptions[StatusDisplay::kMaxStartChoices];
-    uint8_t mStartChoiceCount    = 0;
-    uint8_t mSelectedStartChoice = 0;
-    bool mSmartUsesPrice         = false; // Which forecast Smart's delay came from
+    // The Ready By screen: how long from now the program must finish, and the best start within
+    // that, which a click uses.
+    uint32_t mReadyByS      = 0;
+    uint32_t mReadyByAt     = 0; // The same as a clock time on a quarter hour, or 0 without the clock
+    bool mReadyByHasStart   = false;
+    uint32_t mReadyByDelayS = 0;
+    bool mSmartUsesPrice    = false; // Whether that start came from the price, or the grid conditions
+
+    // The deadline of a program started from Ready By, in Matter epoch seconds, or 0 for none. The
+    // DEM forecast's latestEndTime, and the limit for energy manager adjustments.
+    uint32_t mReadyByEpoch = 0;
 
     uint8_t mOptimizingTicksLeft = 0;
+    bool mHoldingStart           = false; // While Optimizing: don't start yet, so an energy manager can move it
     char mSavingText[40]         = "";
 
     // The highlighted row on the Settings and Energy Mgmt pages.

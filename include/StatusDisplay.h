@@ -24,18 +24,10 @@ public:
         kSettings,      // Commissioning / Energy Mgmt / Back
         kCommissioning, // The QR code and manual pairing code, while the commissioning window is open
         kEnergyMenu,    // Opt In / Opt Out, opened from Settings
-        kStartChoice,   // Now / Smart
-        kOptimizing,    // Waiting a few seconds for an energy manager to move a Smart start
-        kSmartStart,    // When a Smart start will begin and what it saves, with Cancel
+        kReadyBy,       // When the program must be ready, on a timeline of the next day
+        kOptimizing,    // Waiting a few seconds for an energy manager to move a scheduled start
+        kSmartStart,    // When a scheduled start will begin and what it saves, with Cancel
     };
-
-    struct StartChoice
-    {
-        const char * label = "";
-        uint32_t delayS    = 0;
-    };
-
-    static constexpr uint8_t kMaxStartChoices = 2;
 
     // The rows on the Settings page, and on the Energy Mgmt page.
     enum SettingsItem : uint8_t
@@ -66,14 +58,14 @@ public:
         const char * phaseText    = "";
         const char * priceText    = "";
 
-        const StartChoice * startChoices = nullptr;
-        uint8_t startChoiceCount         = 0;
-        uint8_t selectedStartChoice      = 0; // startChoiceCount means Cancel
+        uint32_t readyByS     = 0;     // On kReadyBy: how long from now it must be ready
+        bool hasClock         = false; // Whether readyByClock is known
+        uint32_t readyByClock = 0;     // Matter epoch seconds: Ready By, or on kSmartStart, when it will finish
 
         uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu; on kSmartStart, 1 is Cancel
 
         uint8_t optimizingDots  = 1;  // On kOptimizing
-        const char * savingText = ""; // On kSmartStart
+        const char * savingText = ""; // On kReadyBy and kSmartStart
 
         const char * qrCode     = ""; // On kCommissioning
         const char * manualCode = "";

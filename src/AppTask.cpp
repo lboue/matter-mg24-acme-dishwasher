@@ -73,11 +73,6 @@ void EncoderClicked()
 {
     PostEncoderEvent(AppTask::EncoderClickHandler);
 }
-
-void EncoderLongPressed()
-{
-    PostEncoderEvent(AppTask::EncoderLongPressHandler);
-}
 } // namespace
 
 AppTask AppTask::sAppTask;
@@ -85,7 +80,7 @@ AppTask AppTask::sAppTask;
 CHIP_ERROR AppTask::AppInit()
 {
     GetPlatform().SetButtonsCb(AppTask::ButtonEventHandler);
-    RotaryEncoder::Init(EncoderTurned, EncoderClicked, EncoderLongPressed);
+    RotaryEncoder::Init(EncoderTurned, EncoderClicked);
 
     PlatformMgr().LockChipStack();
 
@@ -189,7 +184,7 @@ void AppTask::FunctionButtonHandler(AppEvent * aEvent)
     }
     else if (sIsProvisioned && !sIsFactoryResetTriggered && NowMs() - sFunctionPressedAtMs < kLongPressMs)
     {
-        TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().SelectNextMode(); });
+        TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleCancelButton(); });
     }
 
     // Commissioning window, QR code and factory reset.
@@ -219,9 +214,4 @@ void AppTask::EncoderCounterClockwiseHandler(AppEvent *)
 void AppTask::EncoderClickHandler(AppEvent *)
 {
     TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleWheelClicked(); });
-}
-
-void AppTask::EncoderLongPressHandler(AppEvent *)
-{
-    TEMPORARY_RETURN_IGNORED PlatformMgr().ScheduleWork([](intptr_t) { DishwasherMgr().HandleWheelLongPressed(); });
 }

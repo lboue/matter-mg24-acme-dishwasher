@@ -21,6 +21,7 @@
 #include <platform/CHIPDeviceLayer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
+#include <algorithm>
 #include <stdio.h>
 
 using namespace chip;
@@ -113,6 +114,14 @@ static_assert(MATTER_ARRAY_SIZE(kEcoSteps) <= kMaxProgramSteps && MATTER_ARRAY_S
 
 // How far ahead a program may be moved, matching the forecast's latestEndTime.
 constexpr uint32_t kStartHorizonS = 86400;
+
+// Turning the knob on the Ready By screen moves it by this much.
+constexpr uint32_t kReadyByStepS = 15 * 60;
+
+uint32_t RoundUpToStep(uint32_t seconds)
+{
+    return (seconds + kReadyByStepS - 1) / kReadyByStepS * kReadyByStepS;
+}
 
 using Screen = StatusDisplay::Screen;
 
@@ -246,11 +255,30 @@ void DishwasherManager::HandleWheelTurned(int8_t direction)
         return;
     }
 
-    if (mScreen == Screen::kStartChoice)
+    if (mScreen == Screen::kReadyBy)
     {
-        // The choices, then Cancel, wrapping around.
-        const int itemCount  = mStartChoiceCount + 1;
-        mSelectedStartChoice = static_cast<uint8_t>((mSelectedStartChoice + itemCount + direction) % itemCount);
+        // From the earliest it could be ready to a day ahead, without wrapping. With the clock, each
+        // step stays on a quarter hour.
+        RefreshReadyBy();
+        int32_t step = 0;
+        if (direction > 0 && mReadyByS + kReadyByStepS <= kStartHorizonS)
+        {
+            step = kReadyByStepS;
+        }
+        else if (direction < 0 && mReadyByS >= EarliestReadyByS() + kReadyByStepS)
+        {
+            step = -static_cast<int32_t>(kReadyByStepS);
+        }
+        else
+        {
+            return;
+        }
+        mReadyByS += step;
+        if (mReadyByAt != 0)
+        {
+            mReadyByAt += step;
+        }
+        UpdateReadyBy();
         UpdateDishwasherDisplay();
         return;
     }
@@ -330,17 +358,9 @@ void DishwasherManager::HandleWheelClicked()
         break;
     }
 
-    if (mScreen == Screen::kStartChoice)
+    if (mScreen == Screen::kReadyBy)
     {
-        if (mSelectedStartChoice == mStartChoiceCount)
-        {
-            // Cancel.
-            ShowScreen(Screen::kStatus);
-        }
-        else
-        {
-            StartProgram(mStartOptions[mSelectedStartChoice], mStartChoices[mSelectedStartChoice].delayS);
-        }
+        StartReadyBy();
         return;
     }
 
@@ -348,7 +368,7 @@ void DishwasherManager::HandleWheelClicked()
     {
         if (mDelayedStartTimeRemaining > 0)
         {
-            ChipLogProgress(AppServer, "Waiting to start; hold the knob to cancel");
+            ChipLogProgress(AppServer, "Waiting to start; press BTN0 to cancel");
         }
         else if (mState == OperationalStateEnum::kRunning)
         {
@@ -367,17 +387,17 @@ void DishwasherManager::HandleWheelClicked()
         return;
     }
 
-    OpenStartChoice();
+    OpenReadyBy();
 }
 
-void DishwasherManager::HandleWheelLongPressed()
+// BTN0: cancel, or back one level.
+void DishwasherManager::HandleCancelButton()
 {
     if (!mIsPoweredOn)
     {
         return;
     }
 
-    // Back one level.
     switch (mScreen)
     {
     case Screen::kCommissioning:
@@ -388,9 +408,7 @@ void DishwasherManager::HandleWheelLongPressed()
         ShowScreen(Screen::kSettings, StatusDisplay::kSettingsEnergy);
         return;
     case Screen::kSettings:
-        // Back is on the page.
-        return;
-    case Screen::kStartChoice:
+    case Screen::kReadyBy:
         ShowScreen(Screen::kStatus);
         return;
     case Screen::kOptimizing:
@@ -473,41 +491,132 @@ void DishwasherManager::CheckCommissioningWindow()
     }
 }
 
-void DishwasherManager::OpenStartChoice()
+void DishwasherManager::OpenReadyBy()
 {
-    mStartChoiceCount    = 0;
-    mSelectedStartChoice = 0;
+    // Start on the earliest Ready By that gets the biggest saving: the best start within a day,
+    // plus the run time. Without a forecast, the earliest it could be ready.
+    mReadyByS  = kStartHorizonS;
+    mReadyByAt = 0;
+    UpdateReadyBy();
+    SetReadyByFromNow(mReadyByHasStart ? mReadyByDelayS + GetProgramDuration() : GetProgramDuration());
 
-    auto addChoice = [this](StartOption option, const char * label, uint32_t delayS) {
-        mStartOptions[mStartChoiceCount] = option;
-        mStartChoices[mStartChoiceCount] = { label, delayS };
-        mStartChoiceCount++;
-    };
+    // Rounding up to a quarter hour can take it just past a day ahead.
+    while (mReadyByS > kStartHorizonS && mReadyByS >= EarliestReadyByS() + kReadyByStepS)
+    {
+        mReadyByS -= kReadyByStepS;
+        mReadyByAt -= mReadyByAt != 0 ? kReadyByStepS : 0;
+    }
 
-    addChoice(StartOption::kNow, "Now", 0);
+    UpdateReadyBy();
+    ShowScreen(Screen::kReadyBy);
+}
 
-    // Smart uses the price when there's a price forecast, and otherwise the grid conditions.
-    uint32_t delayS = 0;
-    if (FindCheapestStart(delayS))
+// Sets Ready By to at least secondsFromNow, rounded up to the next quarter hour on the clock, or
+// to the next 15 minutes from now without the clock.
+void DishwasherManager::SetReadyByFromNow(uint32_t secondsFromNow)
+{
+    uint32_t now = 0;
+    if (WallClock::Instance().GetMatterEpochSeconds(now))
+    {
+        mReadyByAt = RoundUpToStep(now + secondsFromNow);
+        mReadyByS  = mReadyByAt - now;
+    }
+    else
+    {
+        mReadyByAt = 0;
+        mReadyByS  = RoundUpToStep(secondsFromNow);
+    }
+}
+
+// With the clock, Ready By is a fixed clock time, so the time left until then shrinks as time passes.
+void DishwasherManager::RefreshReadyBy()
+{
+    uint32_t now = 0;
+    if (mReadyByAt != 0 && WallClock::Instance().GetMatterEpochSeconds(now))
+    {
+        mReadyByS = mReadyByAt > now ? mReadyByAt - now : 0;
+    }
+}
+
+// The earliest Ready By, in seconds from now: the end of a run started now, rounded up as above.
+uint32_t DishwasherManager::EarliestReadyByS() const
+{
+    uint32_t now = 0;
+    if (mReadyByAt != 0 && WallClock::Instance().GetMatterEpochSeconds(now))
+    {
+        return RoundUpToStep(now + GetProgramDuration()) - now;
+    }
+    return RoundUpToStep(GetProgramDuration());
+}
+
+// Finds the best start that finishes by Ready By (price first, then grid conditions), and when
+// opted out, what it saves compared with starting now.
+void DishwasherManager::UpdateReadyBy()
+{
+    RefreshReadyBy();
+
+    mReadyByHasStart = false;
+    mSavingText[0]   = '\0';
+
+    Span<const StartPlanner::Period> periods;
+    uint32_t now       = 0;
+    uint32_t delayS    = 0;
+    const auto profile = GetPowerProfile();
+    if (BuildPricePeriods(periods, now) && StartPlanner::FindBestStart(periods, profile, now, mReadyByS, delayS))
     {
         mSmartUsesPrice = true;
-        addChoice(StartOption::kSmart, "Smart", delayS);
     }
-    else if (FindGreenestStart(delayS))
+    else if (BuildGridPeriods(periods, now) && StartPlanner::FindBestStart(periods, profile, now, mReadyByS, delayS))
     {
         mSmartUsesPrice = false;
-        addChoice(StartOption::kSmart, "Smart", delayS);
     }
-
-    // Nothing to choose between.
-    if (mStartChoiceCount == 1)
+    else
     {
-        StartProgram(StartOption::kNow, 0);
         return;
     }
 
-    mScreen = Screen::kStartChoice;
-    UpdateDishwasherDisplay();
+    mReadyByHasStart = true;
+    mReadyByDelayS   = delayS;
+
+    // When opted in, an energy manager may move the start, so there's no saving to promise.
+    if (!mOptedIntoEnergyManagement)
+    {
+        FormatSaving(periods, now, delayS);
+    }
+}
+
+void DishwasherManager::StartReadyBy()
+{
+    if (!mReadyByHasStart)
+    {
+        // No forecast or no clock, so nothing to optimise.
+        ChipLogProgress(AppServer, "Nothing to optimise against, starting now");
+        BeginProgram(0, false);
+        return;
+    }
+
+    const uint32_t delayS = mReadyByDelayS;
+
+    RefreshReadyBy();
+    uint32_t now  = 0;
+    mReadyByEpoch = mReadyByAt != 0 ? mReadyByAt : (WallClock::Instance().GetMatterEpochSeconds(now) ? now + mReadyByS : 0);
+
+    ChipLogProgress(AppServer, "Ready by %lus from now: starting in %lus (%s)", static_cast<unsigned long>(mReadyByS),
+                    static_cast<unsigned long>(delayS), mSmartUsesPrice ? "price" : "grid");
+    BeginProgram(delayS, mOptedIntoEnergyManagement);
+
+    if (mOptedIntoEnergyManagement)
+    {
+        // Schedule it at the cheapest time, but hold it while Optimizing shows, even if that time is
+        // now, so an energy manager can still move it.
+        mHoldingStart        = true;
+        mOptimizingTicksLeft = kOptimizingS;
+        ShowScreen(Screen::kOptimizing);
+    }
+    else if (delayS > 0)
+    {
+        ShowSmartStart();
+    }
 }
 
 uint32_t DishwasherManager::GetProgramDuration() const
@@ -589,21 +698,6 @@ bool DishwasherManager::BuildGridPeriods(Span<const StartPlanner::Period> & peri
     return true;
 }
 
-bool DishwasherManager::FindCheapestStart(uint32_t & delayS) const
-{
-    Span<const StartPlanner::Period> periods;
-    uint32_t now = 0;
-    return BuildPricePeriods(periods, now) &&
-        StartPlanner::FindBestStart(periods, GetPowerProfile(), now, kStartHorizonS, delayS);
-}
-
-bool DishwasherManager::FindGreenestStart(uint32_t & delayS) const
-{
-    Span<const StartPlanner::Period> periods;
-    uint32_t now = 0;
-    return BuildGridPeriods(periods, now) && StartPlanner::FindBestStart(periods, GetPowerProfile(), now, kStartHorizonS, delayS);
-}
-
 // While Optimizing shows, an energy manager can move the start. Then show where it ended up.
 void DishwasherManager::TickOptimizing()
 {
@@ -616,6 +710,15 @@ void DishwasherManager::TickOptimizing()
     {
         mOptimizingTicksLeft--;
         UpdateDishwasherDisplay();
+        return;
+    }
+
+    mHoldingStart = false;
+
+    // Nothing to wait for, so it starts on the next tick.
+    if (mDelayedStartTimeRemaining == 0)
+    {
+        ShowScreen(Screen::kStatus);
         return;
     }
 
@@ -652,11 +755,19 @@ void DishwasherManager::UpdateSmartSaving()
         return;
     }
 
+    FormatSaving(periods, now, mDelayedStartTimeRemaining);
+}
+
+// Sets mSavingText to what starting delayS from now saves compared with starting now.
+void DishwasherManager::FormatSaving(Span<const StartPlanner::Period> periods, uint32_t now, uint32_t delayS)
+{
+    mSavingText[0] = '\0';
+
     const auto profile = GetPowerProfile();
     int64_t costNow    = 0;
     int64_t costLater  = 0;
     if (!StartPlanner::ProfileCost(periods, profile, now, costNow) ||
-        !StartPlanner::ProfileCost(periods, profile, now + mDelayedStartTimeRemaining, costLater))
+        !StartPlanner::ProfileCost(periods, profile, now + delayS, costLater))
     {
         return;
     }
@@ -752,36 +863,6 @@ void DishwasherManager::StartProgram()
     BeginProgram(mOptedIntoEnergyManagement ? kOptimisationDelayS : 0, mOptedIntoEnergyManagement);
 }
 
-void DishwasherManager::StartProgram(StartOption option, uint32_t delayS)
-{
-    if (option == StartOption::kNow)
-    {
-        // Now means now: no window for an energy manager to move it in.
-        BeginProgram(0, false);
-        return;
-    }
-
-    // When opted in, leave an energy manager time to move it, as the Matter Start command does.
-    if (mOptedIntoEnergyManagement && delayS < kOptimisationDelayS)
-    {
-        delayS = kOptimisationDelayS;
-    }
-
-    ChipLogProgress(AppServer, "Starting at the smart time (%s), in %lus", mSmartUsesPrice ? "price" : "grid",
-                    static_cast<unsigned long>(delayS));
-    BeginProgram(delayS, mOptedIntoEnergyManagement);
-
-    if (mOptedIntoEnergyManagement)
-    {
-        mOptimizingTicksLeft = kOptimizingS;
-        ShowScreen(Screen::kOptimizing);
-    }
-    else if (delayS > 0)
-    {
-        ShowSmartStart();
-    }
-}
-
 void DishwasherManager::BeginProgram(uint32_t delayS, bool canMoveStart)
 {
     if (mIsProgramSelected)
@@ -816,12 +897,17 @@ CHIP_ERROR DishwasherManager::AdjustStartTime(uint32_t newStartTime)
                         ChipLogError(AppServer, "Program was started now, ignoring start time adjustment"));
 
     // Once the program has started we can't move it.
-    VerifyOrReturnError(mIsProgramSelected && mState == OperationalStateEnum::kStopped && mDelayedStartTimeRemaining > 0,
+    VerifyOrReturnError(mIsProgramSelected && mState == OperationalStateEnum::kStopped &&
+                            (mDelayedStartTimeRemaining > 0 || mHoldingStart),
                         CHIP_ERROR_INCORRECT_STATE, ChipLogError(AppServer, "Program already started, cannot adjust start time"));
 
     uint32_t now = 0;
     VerifyOrReturnError(WallClock::Instance().GetMatterEpochSeconds(now), CHIP_ERROR_INCORRECT_STATE,
                         ChipLogError(AppServer, "Time not synchronised, cannot adjust start time"));
+
+    // A program started from Ready By has to finish by then.
+    VerifyOrReturnError(mReadyByEpoch == 0 || newStartTime + mRunningTimeRemaining <= mReadyByEpoch, CHIP_ERROR_INVALID_ARGUMENT,
+                        ChipLogError(AppServer, "New start time would finish after Ready By, ignoring"));
 
     mDelayedStartTimeRemaining = newStartTime > now ? newStartTime - now : 0;
     ChipLogProgress(AppServer, "Program will now start in %lus", static_cast<unsigned long>(mDelayedStartTimeRemaining));
@@ -855,6 +941,8 @@ void DishwasherManager::StopProgram()
 
     mIsProgramSelected         = false;
     mCanMoveStart              = false;
+    mHoldingStart              = false;
+    mReadyByEpoch              = 0;
     mDelayedStartTimeRemaining = 0;
     mRunningTimeRemaining      = 0;
     UpdateCurrentPhase(0);
@@ -890,6 +978,12 @@ void DishwasherManager::ProgressProgram()
         mDelayedStartTimeRemaining--;
         OperationalState::GetInstance()->UpdateCountdownTimeFromDelegate();
         UpdateDishwasherDisplay();
+        return;
+    }
+
+    // Held while an energy manager may still move the start.
+    if (mState == OperationalStateEnum::kStopped && mHoldingStart)
+    {
         return;
     }
 
@@ -968,8 +1062,8 @@ void DishwasherManager::UpdateMode(uint8_t mode)
     mMode               = mode;
     mIsSettingsSelected = false;
 
-    // The chooser's delays were worked out for the old program.
-    if (mScreen == Screen::kStartChoice)
+    // Ready By was worked out for the old program.
+    if (mScreen == Screen::kReadyBy)
     {
         mScreen = Screen::kStatus;
     }
@@ -995,7 +1089,8 @@ void DishwasherManager::SetForecast()
     if (mCanMoveStart)
     {
         sForecastStruct.earliestStartTime.SetValue(DataModel::MakeNullable(now));
-        sForecastStruct.latestEndTime.SetValue(now + 86400 /* 24 hours */);
+        // The Ready By deadline, if there is one, otherwise a day.
+        sForecastStruct.latestEndTime.SetValue(mReadyByEpoch != 0 ? mReadyByEpoch : now + kStartHorizonS);
     }
     else
     {
@@ -1094,9 +1189,20 @@ void DishwasherManager::UpdateDishwasherDisplay()
     view.modeText            = modeBuffer;
     view.phaseText           = phaseBuffer;
     view.priceText           = priceBuffer;
-    view.startChoices        = mStartChoices;
-    view.startChoiceCount    = mStartChoiceCount;
-    view.selectedStartChoice = mSelectedStartChoice;
+    if (mScreen == Screen::kReadyBy)
+    {
+        RefreshReadyBy();
+    }
+    view.readyByS            = mReadyByS;
+    view.readyByClock        = mReadyByAt;
+    if (mScreen == Screen::kSmartStart)
+    {
+        // When it will finish: the start plus the run time.
+        uint32_t now      = 0;
+        view.readyByClock = WallClock::Instance().GetMatterEpochSeconds(now) ? now + mDelayedStartTimeRemaining + mRunningTimeRemaining
+                                                                             : 0;
+    }
+    view.hasClock            = view.readyByClock != 0;
     view.selectedMenuItem    = mMenuItem;
     view.qrCode              = mQrCode;
     view.manualCode          = mManualCode;

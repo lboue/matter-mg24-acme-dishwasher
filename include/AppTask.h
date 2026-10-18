@@ -35,14 +35,15 @@
 /**
  * Controls on the xG24 Dev Kit (the ESP32 version had two buttons and a rotary encoder):
  *
- *   BTN0 short press   Next program (when commissioned), plus the usual Silabs behaviour:
- *                      open the commissioning window if not commissioned, and log the QR code
+ *   BTN0 short press   Cancel / back: leave a menu, or stop a program (when commissioned), plus
+ *                      the usual Silabs behaviour: open the commissioning window if not
+ *                      commissioned, and log the QR code
  *   BTN0 hold 6s       Factory reset (Silabs standard; replaces the ESP32 reset prompt)
  *   BTN1 press         Power on / off
- *   Encoder turn       Move through the programs and Settings, or the options on a menu
- *   Encoder click      Settings: open / close the Energy Mgr menu. Program: start it, asking
- *                      Now / Smart when there's a forecast. Running: pause / resume
- *   Encoder hold 1s    Stop the program, or leave a menu
+ *   Encoder turn       Move through the programs and Settings, the options on a menu, or the
+ *                      Ready By time
+ *   Encoder click      Settings: open it. Program: set when it must be ready, then click again to
+ *                      start at the best time before then. Running: pause / resume
  *
  * Start, cancel and energy management opt-in are also on the `dishwasher` shell command.
  */
@@ -62,7 +63,6 @@ public:
     static void EncoderClockwiseHandler(AppEvent * aEvent);
     static void EncoderCounterClockwiseHandler(AppEvent * aEvent);
     static void EncoderClickHandler(AppEvent * aEvent);
-    static void EncoderLongPressHandler(AppEvent * aEvent);
 
 private:
     static AppTask sAppTask;

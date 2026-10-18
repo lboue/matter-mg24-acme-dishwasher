@@ -28,15 +28,12 @@ constexpr uint8_t kRestState = 0b11;
 
 RotaryEncoder::TurnCallback sOnTurn;
 RotaryEncoder::ClickCallback sOnClick;
-RotaryEncoder::ClickCallback sOnLongPress;
 
 uint8_t sState;
 int8_t sSteps;
 
 sl_sleeptimer_timer_handle_t sSettleTimer;
-sl_sleeptimer_timer_handle_t sLongPressTimer;
 bool sIsPressed;
-bool sLongPressFired;
 
 // Stands in for the Silabs status LED, whose pin the switch now uses.
 sl_status_t NoLedInit(void *)
@@ -81,15 +78,6 @@ void OnRotation(uint8_t, void *)
     }
 }
 
-void OnLongPress(sl_sleeptimer_timer_handle_t *, void *)
-{
-    if (sIsPressed)
-    {
-        sLongPressFired = true;
-        sOnLongPress();
-    }
-}
-
 void OnSwitchSettled(sl_sleeptimer_timer_handle_t *, void *)
 {
     // Pressed pulls the line low.
@@ -100,15 +88,8 @@ void OnSwitchSettled(sl_sleeptimer_timer_handle_t *, void *)
     }
     sIsPressed = pressed;
 
-    if (pressed)
-    {
-        sLongPressFired = false;
-        sl_sleeptimer_start_timer_ms(&sLongPressTimer, ROTARY_ENCODER_LONG_PRESS_MS, OnLongPress, nullptr, 0, 0);
-        return;
-    }
-
-    sl_sleeptimer_stop_timer(&sLongPressTimer);
-    if (!sLongPressFired)
+    // A click is reported when the knob is released.
+    if (!pressed)
     {
         sOnClick();
     }
@@ -133,11 +114,10 @@ void ConfigureInput(const sl_gpio_t & gpio, sl_gpio_interrupt_flag_t flags, sl_g
 
 } // namespace
 
-void RotaryEncoder::Init(TurnCallback onTurn, ClickCallback onClick, ClickCallback onLongPress)
+void RotaryEncoder::Init(TurnCallback onTurn, ClickCallback onClick)
 {
-    sOnTurn      = onTurn;
-    sOnClick     = onClick;
-    sOnLongPress = onLongPress;
+    sOnTurn  = onTurn;
+    sOnClick = onClick;
 
     // The Silabs base application looks this up on every status LED update. Without this, its
     // writes would switch the switch pin's pull-up to a pull-down and fake clicks.

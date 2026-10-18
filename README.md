@@ -23,12 +23,12 @@ The dev kit has two buttons, and the OLED and rotary encoder are wired to its ex
 | Control | ESP32 | xG24 Dev Kit |
 | ------- | ----- | ------------ |
 | Power on/off | On/Off button | **BTN1** press |
-| Select program | Rotary encoder | **Encoder** turn, **BTN0** short press (once commissioned), or `dishwasher mode` |
-| Start | Start button | **Encoder** click on a program (choosing Now or Smart), or `dishwasher start` |
+| Select program | Rotary encoder | **Encoder** turn, or `dishwasher mode` |
+| Start | Start button | **Encoder** click on a program, set Ready By, click again; or `dishwasher start` |
 | Pause / resume | Start button | **Encoder** click while running, or `dishwasher start` |
 | Energy management opt-in | Menu (rotary click and turn) | **Encoder**: **Settings** → **Energy Mgmt**, turn to choose, click to apply; or `dishwasher optin on\|off` |
 | Share with another controller | — | **Encoder**: **Settings** → **Commissioning** shows the QR and manual pairing codes |
-| Cancel program | Rotary click | **Encoder** hold ≥ 1 s, or `dishwasher cancel` |
+| Cancel program / back | Rotary click | **BTN0** short press (once commissioned), or `dishwasher cancel` |
 | Factory reset | Hold On/Off 5 s, then confirm | **BTN0** hold ~6 s (Silabs standard; LEDs blink, release to cancel) |
 | Display | SSD1306 OLED | SH1106 OLED on the expansion header, plus **LED1** and the log (see below) |
 
@@ -96,17 +96,29 @@ With the dishwasher on and no program started, turning the knob moves through Ec
 - **Energy Mgmt** shows Opt In and Opt Out, starting on the current choice. Turn to choose, and click to apply it and go back. The Settings page shows the current choice (In/Out) next to the item.
 - **Back** returns to the main screen.
 
-On the Commissioning and Energy Mgmt pages, holding the knob goes back to Settings without changing anything. Settings itself is left with Back. On both pages the selection wraps around from the last item to the first, and back.
+On the Commissioning and Energy Mgmt pages, BTN0 goes back to Settings without changing anything. Settings itself is left with Back, or BTN0. On both pages the selection wraps around from the last item to the first, and back.
 
-Clicking a program starts it:
+Clicking a program opens the **START** screen, where you set when the dishes must be ready:
 
-- With no price or grid-conditions forecast, it starts straight away.
-- Otherwise a **START** menu shows two boxes, **Now** and **Smart**, and a **Cancel** box below them. Turn to move between the three, and click to choose. Cancel (or holding the knob) goes back to the program list.
-- **Now** starts immediately, and the DEM forecast has no start window, so an energy manager can't move it.
-- **Smart** picks the start, within the next 24 hours, that makes the whole program cheapest, from the current price and the price forecast. With no price forecast, it uses the grid-conditions forecast and picks the lowest carbon intensity instead.
-- Choosing **Smart** schedules the program straight away. If you're opted into energy management, an **Optimizing…** screen shows for 5 seconds first, so an energy manager can move the start (`StartTimeAdjustRequest`). The start is then at least 60 s away. A **SMART START** screen then shows when it will start (`Starts in 2:30:00`, counting down) and what that saves compared with starting now: `Saves 0.18 GBP`, or `Saves 120 gCO2` when it used grid conditions. If the energy manager moved it somewhere worse, it shows `Costs … more`. Click to confirm. Turning highlights **Cancel**, and clicking Cancel (or holding the knob) drops the schedule and returns to the home screen, with the same program still selected. The display counts down to it. If you're opted in, an energy manager can still move it.
+```
+START - ECO 50°
+Ready by 17:30 UTC
+Saves 0.18 GBP
+├──────────────────────┤
+      ▲
+```
 
-While the program waits to start, a click does nothing. While it runs, a click pauses or resumes it. Holding the knob for a second cancels the program at any point.
+- **Ready By** starts at the earliest the program could finish (now plus its run time, rounded up to 15 minutes). Turn the knob to move it later or earlier in 15-minute steps, up to 24 hours ahead. The arrow under the line shows where it is in the next 24 hours. The time is in UTC, because the device has no time zone. Until the clock is set, it shows `Ready in 3:30` instead.
+- **Click** to start at the best time that still finishes by then: the cheapest, from the current price and the price forecast, or with no price forecast, the lowest carbon intensity from the grid-conditions forecast. With neither (or no clock), it starts straight away.
+- **When you're opted out of energy management**, a line under the time shows what the best start saves compared with starting now (`Saves 0.18 GBP`, `Saves 120 gCO2` or `No saving`). It updates as you turn. When you're opted in, it's blank, because the energy manager may move the start.
+- **After the click**, if you're opted in, an **Optimizing…** screen shows for 5 seconds, so an energy manager can move the start (`StartTimeAdjustRequest`). The program is scheduled at the cheapest start, but held until Optimizing ends, even if that start is now. So with no adjustment it runs at the cheapest time, at most a few seconds late. The DEM forecast's `latestEndTime` is the Ready By time, and adjustments that would finish later are refused.
+- **A SMART START screen** then shows when it will start (`Starts in 2:30:00`, counting down), when it will be done (`Ready at 17:37 UTC`, the start plus the run time), and what that saves compared with starting now. If the energy manager moved it somewhere worse, it shows `Costs … more`. Click to confirm. Turning highlights **Cancel**, and clicking Cancel drops the schedule and returns to the home screen, with the same program still selected. If the best start is now and you're opted out, the program just starts.
+
+**BTN0 is the Cancel / Back button.** It leaves START, Settings, Energy Mgmt and Commissioning, cancels a scheduled start on Optimizing or SMART START, and stops a program that's waiting or running. On the home screen with nothing running, it does nothing.
+
+While the program waits to start, a click does nothing. While it runs, a click pauses or resumes it.
+
+The previous START screen (Now / Smart boxes) is kept in the `archive/now-smart-start` tag.
 
 The pins, the steps per click (`ROTARY_ENCODER_STEPS_PER_DETENT`, 4 by default; some encoders need 2), the long-press time (`ROTARY_ENCODER_LONG_PRESS_MS`, 1000) and the direction (`ROTARY_ENCODER_REVERSE`) are defines in `include/RotaryEncoder.h`.
 
@@ -170,7 +182,7 @@ The time is only held in RAM, so after a reboot it has to be set again. To avoid
 chip-tool timesynchronization set-trusted-time-source '{"nodeID":1,"endpoint":0}' 0x05 0
 ```
 
-The setting is saved, so it survives reboots. Until the time is set, programs still run, but no forecast is published (you'll see `Time not synchronised` in the log), and the START menu only offers Now.
+The setting is saved, so it survives reboots. Until the time is set, programs still run, but no forecast is published (you'll see `Time not synchronised` in the log), and a Ready By start begins straight away.
 
 **Note:** forecast and start-time values are in **Matter epoch** seconds (since 2000-01-01), as the spec requires. The ESP32 version used Unix epoch seconds.
 
@@ -196,13 +208,13 @@ Starting a program publishes a forecast with one slot per program step. The prog
 | Quick 45° | 0 h 30 | 0.53 kWh | **heat 9 at 2**, wash 12 at 0.15, **hot rinse 6 at 2**, drain 3 at 0.05 |
 | Heavy 65° | 2 h 00 | 1.34 kWh | **heated pre-wash 8 at 2**, **heat 15 at 2**, wash 35 at 0.2, rinse 15 at 0.1, **hot rinse 12 at 2**, dry 35 at 0.05 |
 
-The Operational State phase (pre-soak, main-wash, rinse, final-rinse, drying) follows the steps. The programs are defined in `kPrograms` in `src/DishwasherManager.cpp`. Smart weights each step by its power, so it tries to put the heating steps in the cheapest (or greenest) periods.
+The Operational State phase (pre-soak, main-wash, rinse, final-rinse, drying) follows the steps. The programs are defined in `kPrograms` in `src/DishwasherManager.cpp`. The Ready By planner weights each step by its power, so it tries to put the heating steps in the cheapest (or greenest) periods.
 
-When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. The same applies to a Smart start. The forecast's earliest start is now and its latest end is 24 h away. A program started with **Now** on the encoder has no start window, and adjustments are refused.
+When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. A Ready By start also leaves an energy manager a window when you're opted in, but its latest end is the Ready By time. Otherwise the forecast's earliest start is now and its latest end is 24 h away. When you're opted out, there's no start window and adjustments are refused.
 
 ## Commodity Price
 
-The dishwasher can read the current electricity price, and the price forecast, from a Commodity Price server such as an Electrical Energy Tariff device ([matter-esp32-electrical-energy-tariff-device](../matter-esp32-electrical-energy-tariff-device)). The price appears on the OLED and the `[display]` line, and `dishwasher price` logs the details. When the server has a price forecast, the encoder's **Smart** start uses it.
+The dishwasher can read the current electricity price, and the price forecast, from a Commodity Price server such as an Electrical Energy Tariff device ([matter-esp32-electrical-energy-tariff-device](../matter-esp32-electrical-energy-tariff-device)). The price appears on the OLED and the `[display]` line, and `dishwasher price` logs the details. When the server has a price forecast, the encoder's **Ready By** start uses it.
 
 Matter devices can't discover each other, so you tell the dishwasher where the tariff device is with a **Binding**. The tariff device also needs an **ACL** entry that lets the dishwasher read it. With the dishwasher as node `0x05` and the tariff device as node `0x10`, with prices on endpoint 1, both on chip-tool's fabric:
 
@@ -220,7 +232,7 @@ The dishwasher then subscribes to TariffUnit, Currency, CurrentPrice and PriceFo
 
 ## Electrical Grid Conditions
 
-When there is no price forecast, the **Smart** start uses the grid's carbon intensity (gCO2/kWh) from an Electrical Grid Conditions server, found the same way: a binding for cluster 160, and an ACL entry on that server giving the dishwasher View access to cluster 160. A binding write replaces the whole table, so list both bindings together. For example, with the grid conditions on node `0x11`, endpoint 1:
+When there is no price forecast, the **Ready By** start uses the grid's carbon intensity (gCO2/kWh) from an Electrical Grid Conditions server, found the same way: a binding for cluster 160, and an ACL entry on that server giving the dishwasher View access to cluster 160. A binding write replaces the whole table, so list both bindings together. For example, with the grid conditions on node `0x11`, endpoint 1:
 
 ```
 chip-tool binding write binding '[{"node":16,"endpoint":1,"cluster":149},{"node":17,"endpoint":1,"cluster":160}]' 0x05 1
