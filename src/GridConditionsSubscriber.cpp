@@ -142,6 +142,18 @@ void GridConditionsSubscriber::OnAttributeData(const ConcreteDataAttributePath &
         break;
     }
     case ElectricalGridConditions::Attributes::ForecastConditions::Id: {
+        if (aPath.IsListItemOperation())
+        {
+            // A list too big for one report arrives as an empty list, then one append per entry.
+            ElectricalGridConditions::Structs::ElectricalGridConditionsStruct::DecodableType entry;
+            SuccessOrExit(err = DataModel::Decode(*apData, entry));
+            if (mForecastCount < kMaxForecastEntries)
+            {
+                CopyConditions(entry, mForecast[mForecastCount++]);
+            }
+            break;
+        }
+
         ElectricalGridConditions::Attributes::ForecastConditions::TypeInfo::DecodableType forecast;
         SuccessOrExit(err = DataModel::Decode(*apData, forecast));
         mForecastSupported = true;

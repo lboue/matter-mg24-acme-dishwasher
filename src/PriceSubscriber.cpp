@@ -179,6 +179,18 @@ void PriceSubscriber::OnAttributeData(const ConcreteDataAttributePath & aPath, T
         break;
     }
     case CommodityPrice::Attributes::PriceForecast::Id: {
+        if (aPath.IsListItemOperation())
+        {
+            // A list too big for one report arrives as an empty list, then one append per entry.
+            CommodityPrice::Structs::CommodityPriceStruct::DecodableType entry;
+            SuccessOrExit(err = DataModel::Decode(*apData, entry));
+            if (mForecastCount < kMaxForecastEntries)
+            {
+                CopyPrice(entry, mForecast[mForecastCount++]);
+            }
+            break;
+        }
+
         CommodityPrice::Attributes::PriceForecast::TypeInfo::DecodableType forecast;
         SuccessOrExit(err = DataModel::Decode(*apData, forecast));
         mForecastSupported = true;
