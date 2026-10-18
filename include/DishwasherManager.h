@@ -81,8 +81,14 @@ private:
     void OpenCommissioning();
     void CloseCommissioning();
     void CheckCommissioningWindow();
+    bool BuildPricePeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
+    bool BuildGridPeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
     bool FindCheapestStart(uint32_t & delayS) const;
     bool FindGreenestStart(uint32_t & delayS) const;
+    void TickOptimizing();
+    void ShowSmartStart();
+    void CancelSmartStart();
+    void UpdateSmartSaving();
     uint32_t GetProgramDuration() const;
     chip::Span<const StartPlanner::Step> GetPowerProfile() const;
     void ProgressProgram();
@@ -117,7 +123,10 @@ private:
     StartOption mStartOptions[StatusDisplay::kMaxStartChoices];
     uint8_t mStartChoiceCount    = 0;
     uint8_t mSelectedStartChoice = 0;
-    bool mSmartUsesPrice         = false; // Which forecast Smart's delay came from, for the log
+    bool mSmartUsesPrice         = false; // Which forecast Smart's delay came from
+
+    uint8_t mOptimizingTicksLeft = 0;
+    char mSavingText[40]         = "";
 
     // The highlighted row on the Settings and Energy Mgmt pages.
     uint8_t mMenuItem = 0;

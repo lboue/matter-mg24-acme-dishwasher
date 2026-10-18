@@ -144,35 +144,61 @@ void DrawBox(int x, int y, int width, const char * text, bool selected)
     sOled.DrawText(x + (width - Ssd1306::TextWidth(text)) / 2, y + kPadding, text, 1, !selected);
 }
 
-// The choices side by side in boxes, each with its delay underneath.
-void DrawStartChoice(const StatusDisplay::StartChoice * choices, uint8_t count, uint8_t selected)
+// A Cancel box at the bottom right, as on the START and SMART START screens.
+void DrawCancel(bool selected)
+{
+    constexpr int kCancelWidth = 52;
+    DrawBox(Ssd1306::kWidth - kCancelWidth - 2, 46, kCancelWidth, "Cancel", selected);
+}
+
+// The choices side by side in boxes, with Cancel below.
+void DrawStartChoice(const char * modeText, const StatusDisplay::StartChoice * choices, uint8_t count, uint8_t selected)
 {
     constexpr int kMargin   = 4;
     constexpr int kBoxY     = 16;
-    constexpr int kDelayY   = 38;
     constexpr int kBoxWidth = (Ssd1306::kWidth - 3 * kMargin) / StatusDisplay::kMaxStartChoices;
 
-    DrawTitleBar("START", nullptr);
+    // e.g. "START - ECO 50°". Only ASCII letters are capitalised, so the degree sign survives.
+    char title[32];
+    snprintf(title, sizeof(title), "START - %s", modeText);
+    for (char * c = title; *c != '\0'; c++)
+    {
+        if (*c >= 'a' && *c <= 'z')
+        {
+            *c = static_cast<char>(*c - 'a' + 'A');
+        }
+    }
+    DrawTitleBar(title, nullptr);
 
     for (uint8_t i = 0; i < count; i++)
     {
-        const int x = kMargin + i * (kBoxWidth + kMargin);
-        DrawBox(x, kBoxY, kBoxWidth, choices[i].label, i == selected);
-
-        // Now needs no note. Anything else shows when it would start.
-        if (i > 0)
-        {
-            char delay[16] = "now";
-            if (choices[i].delayS > 0)
-            {
-                delay[0] = '+';
-                FormatDuration(choices[i].delayS, delay + 1, sizeof(delay) - 1);
-            }
-            sOled.DrawText(x + (kBoxWidth - Ssd1306::TextWidth(delay)) / 2, kDelayY, delay);
-        }
+        DrawBox(kMargin + i * (kBoxWidth + kMargin), kBoxY, kBoxWidth, choices[i].label, i == selected);
     }
 
-    sOled.DrawText(0, kLine7Y, "click:start hold:back");
+    DrawCancel(selected == count);
+}
+
+void DrawOptimizing(uint8_t dots)
+{
+    DrawTitleBar("SMART START", nullptr);
+
+    // Always measured with three dots, so the text doesn't shift as they animate.
+    char text[16] = "Optimizing";
+    const int x   = (Ssd1306::kWidth - Ssd1306::TextWidth("Optimizing...")) / 2;
+    strncat(text, "...", std::min<size_t>(dots, 3));
+    sOled.DrawText(x, 28, text);
+}
+
+void DrawSmartStart(uint32_t startsIn, const char * savingText, bool cancelSelected)
+{
+    DrawTitleBar("SMART START", nullptr);
+
+    char startsText[32] = "Starts in ";
+    FormatDuration(startsIn, startsText + strlen(startsText), sizeof(startsText) - strlen(startsText));
+    sOled.DrawText(0, 14, startsText);
+    sOled.DrawText(0, 26, savingText);
+
+    DrawCancel(cancelSelected);
 }
 
 void DrawSettings(uint8_t selected, bool hasOptedIn)
@@ -304,6 +330,18 @@ void StatusDisplay::UpdateDisplay(const View & view)
         snprintf(status, sizeof(status), "COMMISSIONING | %s", view.manualCode);
         DrawCommissioning(view.qrCode, view.manualCode);
     }
+    else if (view.screen == Screen::kOptimizing)
+    {
+        snprintf(status, sizeof(status), "OPTIMIZING | %s", view.modeText);
+        DrawOptimizing(view.optimizingDots);
+    }
+    else if (view.screen == Screen::kSmartStart)
+    {
+        snprintf(status, sizeof(status), "SMART START | %s | %s%s", view.modeText, view.savingText,
+                 view.selectedMenuItem == 1 ? " | Cancel" : "");
+        countdown = view.startsIn;
+        DrawSmartStart(view.startsIn, view.savingText, view.selectedMenuItem == 1);
+    }
     else if (view.screen == Screen::kEnergyMenu)
     {
         snprintf(status, sizeof(status), "ENERGY | %s | EM %s",
@@ -313,8 +351,8 @@ void StatusDisplay::UpdateDisplay(const View & view)
     else if (view.screen == Screen::kStartChoice)
     {
         snprintf(status, sizeof(status), "START | %s | %s", view.modeText,
-                 view.startChoices[view.selectedStartChoice].label);
-        DrawStartChoice(view.startChoices, view.startChoiceCount, view.selectedStartChoice);
+                 view.selectedStartChoice < view.startChoiceCount ? view.startChoices[view.selectedStartChoice].label : "Cancel");
+        DrawStartChoice(view.modeText, view.startChoices, view.startChoiceCount, view.selectedStartChoice);
     }
     else if (view.isProgramSelected && view.startsIn > 0)
     {

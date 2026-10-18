@@ -21,6 +21,8 @@
 #include <platform/CHIPDeviceLayer.h>
 #include <setup_payload/OnboardingCodesUtil.h>
 
+#include <stdio.h>
+
 using namespace chip;
 using namespace chip::app;
 using namespace chip::app::Clusters;
@@ -33,6 +35,9 @@ constexpr System::Clock::Seconds32 kTickInterval(1);
 
 // Start in one minute to allow for optimisation when opted into energy management.
 constexpr uint32_t kOptimisationDelayS = 60;
+
+// How long Optimizing shows after choosing Smart while opted in, for an energy manager to move the start.
+constexpr uint8_t kOptimizingS = 5;
 
 // Indices into OperationalStateDelegate's phase list.
 enum Phase : uint8_t
@@ -141,6 +146,7 @@ CHIP_ERROR DishwasherManager::Init()
 void DishwasherManager::ProgramTick(System::Layer * layer, void * context)
 {
     DishwasherMgr().CheckCommissioningWindow();
+    DishwasherMgr().TickOptimizing();
     DishwasherMgr().ProgressProgram();
     TEMPORARY_RETURN_IGNORED layer->StartTimer(kTickInterval, ProgramTick, context);
 }
@@ -227,15 +233,24 @@ void DishwasherManager::HandleWheelTurned(int8_t direction)
         return;
     }
 
-    if (mScreen == Screen::kCommissioning)
+    if (mScreen == Screen::kCommissioning || mScreen == Screen::kOptimizing)
     {
+        return;
+    }
+
+    if (mScreen == Screen::kSmartStart)
+    {
+        // The only option is Cancel, so turning either way highlights or unhighlights it.
+        mMenuItem = mMenuItem == 0 ? 1 : 0;
+        UpdateDishwasherDisplay();
         return;
     }
 
     if (mScreen == Screen::kStartChoice)
     {
-        // Wraps around, so turning either way swaps between the boxes.
-        mSelectedStartChoice = static_cast<uint8_t>((mSelectedStartChoice + mStartChoiceCount + direction) % mStartChoiceCount);
+        // The choices, then Cancel, wrapping around.
+        const int itemCount  = mStartChoiceCount + 1;
+        mSelectedStartChoice = static_cast<uint8_t>((mSelectedStartChoice + itemCount + direction) % itemCount);
         UpdateDishwasherDisplay();
         return;
     }
@@ -299,13 +314,33 @@ void DishwasherManager::HandleWheelClicked()
         SetEnergyManagementOptIn(mMenuItem == StatusDisplay::kEnergyOptIn);
         ShowScreen(Screen::kSettings, StatusDisplay::kSettingsEnergy);
         return;
+    case Screen::kOptimizing:
+        return;
+    case Screen::kSmartStart:
+        if (mMenuItem == 1)
+        {
+            CancelSmartStart();
+        }
+        else
+        {
+            ShowScreen(Screen::kStatus);
+        }
+        return;
     default:
         break;
     }
 
     if (mScreen == Screen::kStartChoice)
     {
-        StartProgram(mStartOptions[mSelectedStartChoice], mStartChoices[mSelectedStartChoice].delayS);
+        if (mSelectedStartChoice == mStartChoiceCount)
+        {
+            // Cancel.
+            ShowScreen(Screen::kStatus);
+        }
+        else
+        {
+            StartProgram(mStartOptions[mSelectedStartChoice], mStartChoices[mSelectedStartChoice].delayS);
+        }
         return;
     }
 
@@ -357,6 +392,10 @@ void DishwasherManager::HandleWheelLongPressed()
         return;
     case Screen::kStartChoice:
         ShowScreen(Screen::kStatus);
+        return;
+    case Screen::kOptimizing:
+    case Screen::kSmartStart:
+        CancelSmartStart();
         return;
     case Screen::kStatus:
         break;
@@ -491,10 +530,10 @@ Span<const StartPlanner::Step> DishwasherManager::GetPowerProfile() const
     return Span<const StartPlanner::Step>(sPowerProfile, program.count);
 }
 
-bool DishwasherManager::FindCheapestStart(uint32_t & delayS) const
+// Fills sPlannerPeriods with the current price and the price forecast. False without a forecast or the time.
+bool DishwasherManager::BuildPricePeriods(Span<const StartPlanner::Period> & periods, uint32_t & now) const
 {
     const auto & prices = PriceSubscriber::Instance();
-    uint32_t now        = 0;
     if (!prices.IsForecastSupported() || prices.GetForecast().empty() || !WallClock::Instance().GetMatterEpochSeconds(now))
     {
         return false;
@@ -518,14 +557,14 @@ bool DishwasherManager::FindCheapestStart(uint32_t & delayS) const
         add(entry);
     }
 
-    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), GetPowerProfile(), now,
-                                       kStartHorizonS, delayS);
+    periods = Span<const StartPlanner::Period>(sPlannerPeriods, count);
+    return true;
 }
 
-bool DishwasherManager::FindGreenestStart(uint32_t & delayS) const
+// The same for the grid's carbon intensity.
+bool DishwasherManager::BuildGridPeriods(Span<const StartPlanner::Period> & periods, uint32_t & now) const
 {
     const auto & grid = GridConditionsSubscriber::Instance();
-    uint32_t now      = 0;
     if (!grid.IsForecastSupported() || grid.GetForecast().empty() || !WallClock::Instance().GetMatterEpochSeconds(now))
     {
         return false;
@@ -546,8 +585,111 @@ bool DishwasherManager::FindGreenestStart(uint32_t & delayS) const
         add(entry);
     }
 
-    return StartPlanner::FindBestStart(Span<const StartPlanner::Period>(sPlannerPeriods, count), GetPowerProfile(), now,
-                                       kStartHorizonS, delayS);
+    periods = Span<const StartPlanner::Period>(sPlannerPeriods, count);
+    return true;
+}
+
+bool DishwasherManager::FindCheapestStart(uint32_t & delayS) const
+{
+    Span<const StartPlanner::Period> periods;
+    uint32_t now = 0;
+    return BuildPricePeriods(periods, now) &&
+        StartPlanner::FindBestStart(periods, GetPowerProfile(), now, kStartHorizonS, delayS);
+}
+
+bool DishwasherManager::FindGreenestStart(uint32_t & delayS) const
+{
+    Span<const StartPlanner::Period> periods;
+    uint32_t now = 0;
+    return BuildGridPeriods(periods, now) && StartPlanner::FindBestStart(periods, GetPowerProfile(), now, kStartHorizonS, delayS);
+}
+
+// While Optimizing shows, an energy manager can move the start. Then show where it ended up.
+void DishwasherManager::TickOptimizing()
+{
+    if (mScreen != Screen::kOptimizing)
+    {
+        return;
+    }
+
+    if (mOptimizingTicksLeft > 1)
+    {
+        mOptimizingTicksLeft--;
+        UpdateDishwasherDisplay();
+        return;
+    }
+
+    ShowSmartStart();
+}
+
+void DishwasherManager::ShowSmartStart()
+{
+    UpdateSmartSaving();
+    ShowScreen(Screen::kSmartStart, 0);
+}
+
+// Drops the scheduled Smart start and goes back to the home screen, with the same program selected.
+void DishwasherManager::CancelSmartStart()
+{
+    ChipLogProgress(AppServer, "Smart start cancelled");
+
+    // StopProgram() goes back to Eco, so put the program back afterwards.
+    const uint8_t mode = mMode;
+    StopProgram();
+    SelectMode(mode);
+    ShowScreen(Screen::kStatus);
+}
+
+// What starting at the scheduled time saves compared with starting now, for the Smart Start screen.
+void DishwasherManager::UpdateSmartSaving()
+{
+    mSavingText[0] = '\0';
+
+    Span<const StartPlanner::Period> periods;
+    uint32_t now = 0;
+    if (!(mSmartUsesPrice ? BuildPricePeriods(periods, now) : BuildGridPeriods(periods, now)))
+    {
+        return;
+    }
+
+    const auto profile = GetPowerProfile();
+    int64_t costNow    = 0;
+    int64_t costLater  = 0;
+    if (!StartPlanner::ProfileCost(periods, profile, now, costNow) ||
+        !StartPlanner::ProfileCost(periods, profile, now + mDelayedStartTimeRemaining, costLater))
+    {
+        return;
+    }
+
+    // The costs are value × W × s, so this gives value × kWh: money, or grams of CO2. Rounded.
+    constexpr int64_t kWattSecondsPerKWh = 3'600'000;
+    const int64_t saving                 = costNow - costLater;
+    const int64_t magnitude              = ((saving < 0 ? -saving : saving) + kWattSecondsPerKWh / 2) / kWattSecondsPerKWh;
+
+    if (magnitude == 0)
+    {
+        snprintf(mSavingText, sizeof(mSavingText), "No saving");
+        return;
+    }
+
+    char amount[24];
+    if (mSmartUsesPrice)
+    {
+        PriceSubscriber::Instance().FormatAmount(magnitude, amount, sizeof(amount));
+    }
+    else
+    {
+        snprintf(amount, sizeof(amount), "%ld gCO2", static_cast<long>(magnitude));
+    }
+
+    if (saving > 0)
+    {
+        snprintf(mSavingText, sizeof(mSavingText), "Saves %s", amount);
+    }
+    else
+    {
+        snprintf(mSavingText, sizeof(mSavingText), "Costs %s more", amount);
+    }
 }
 
 void DishwasherManager::SetEnergyManagementOptIn(bool optIn)
@@ -619,9 +761,25 @@ void DishwasherManager::StartProgram(StartOption option, uint32_t delayS)
         return;
     }
 
+    // When opted in, leave an energy manager time to move it, as the Matter Start command does.
+    if (mOptedIntoEnergyManagement && delayS < kOptimisationDelayS)
+    {
+        delayS = kOptimisationDelayS;
+    }
+
     ChipLogProgress(AppServer, "Starting at the smart time (%s), in %lus", mSmartUsesPrice ? "price" : "grid",
                     static_cast<unsigned long>(delayS));
     BeginProgram(delayS, mOptedIntoEnergyManagement);
+
+    if (mOptedIntoEnergyManagement)
+    {
+        mOptimizingTicksLeft = kOptimizingS;
+        ShowScreen(Screen::kOptimizing);
+    }
+    else if (delayS > 0)
+    {
+        ShowSmartStart();
+    }
 }
 
 void DishwasherManager::BeginProgram(uint32_t delayS, bool canMoveStart)
@@ -690,6 +848,11 @@ void DishwasherManager::ResumeProgram()
 
 void DishwasherManager::StopProgram()
 {
+    if (mScreen == Screen::kOptimizing || mScreen == Screen::kSmartStart)
+    {
+        mScreen = Screen::kStatus;
+    }
+
     mIsProgramSelected         = false;
     mCanMoveStart              = false;
     mDelayedStartTimeRemaining = 0;
@@ -733,6 +896,10 @@ void DishwasherManager::ProgressProgram()
     // If we are stopped, we should start running.
     if (mState == OperationalStateEnum::kStopped)
     {
+        if (mScreen == Screen::kOptimizing || mScreen == Screen::kSmartStart)
+        {
+            mScreen = Screen::kStatus;
+        }
         UpdateOperationState(OperationalStateEnum::kRunning);
     }
 
@@ -933,6 +1100,8 @@ void DishwasherManager::UpdateDishwasherDisplay()
     view.selectedMenuItem    = mMenuItem;
     view.qrCode              = mQrCode;
     view.manualCode          = mManualCode;
+    view.optimizingDots      = static_cast<uint8_t>((kOptimizingS - mOptimizingTicksLeft) % 3 + 1);
+    view.savingText          = mSavingText;
 
     StatusDisplay::Instance().UpdateDisplay(view);
 }

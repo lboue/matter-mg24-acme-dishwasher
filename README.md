@@ -101,9 +101,10 @@ On the Commissioning and Energy Mgmt pages, holding the knob goes back to Settin
 Clicking a program starts it:
 
 - With no price or grid-conditions forecast, it starts straight away.
-- Otherwise a **START** menu shows two boxes, **Now** and **Smart**, with how long Smart would wait underneath (`+1:30:00`). Turn to swap between them, click to start, or hold to go back.
+- Otherwise a **START** menu shows two boxes, **Now** and **Smart**, and a **Cancel** box below them. Turn to move between the three, and click to choose. Cancel (or holding the knob) goes back to the program list.
 - **Now** starts immediately, and the DEM forecast has no start window, so an energy manager can't move it.
-- **Smart** picks the start, within the next 24 hours, that makes the whole program cheapest, from the current price and the price forecast. With no price forecast, it uses the grid-conditions forecast and picks the lowest carbon intensity instead. The display counts down to it. If you're opted in, an energy manager can still move it.
+- **Smart** picks the start, within the next 24 hours, that makes the whole program cheapest, from the current price and the price forecast. With no price forecast, it uses the grid-conditions forecast and picks the lowest carbon intensity instead.
+- Choosing **Smart** schedules the program straight away. If you're opted into energy management, an **Optimizing…** screen shows for 5 seconds first, so an energy manager can move the start (`StartTimeAdjustRequest`). The start is then at least 60 s away. A **SMART START** screen then shows when it will start (`Starts in 2:30:00`, counting down) and what that saves compared with starting now: `Saves 0.18 GBP`, or `Saves 120 gCO2` when it used grid conditions. If the energy manager moved it somewhere worse, it shows `Costs … more`. Click to confirm. Turning highlights **Cancel**, and clicking Cancel (or holding the knob) drops the schedule and returns to the home screen, with the same program still selected. The display counts down to it. If you're opted in, an energy manager can still move it.
 
 While the program waits to start, a click does nothing. While it runs, a click pauses or resumes it. Holding the knob for a second cancels the program at any point.
 

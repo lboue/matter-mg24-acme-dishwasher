@@ -60,6 +60,23 @@ bool Cost(chip::Span<const Period> periods, uint32_t start, uint32_t end, int64_
 }
 } // namespace
 
+bool ProfileCost(chip::Span<const Period> periods, chip::Span<const Step> profile, uint32_t start, int64_t & cost)
+{
+    cost            = 0;
+    uint32_t stepAt = start;
+    for (const auto & step : profile)
+    {
+        int64_t stepCost = 0;
+        if (!Cost(periods, stepAt, stepAt + step.durationS, stepCost))
+        {
+            return false;
+        }
+        cost += stepCost * step.power;
+        stepAt += step.durationS;
+    }
+    return true;
+}
+
 bool FindBestStart(chip::Span<const Period> periods, chip::Span<const Step> profile, uint32_t now, uint32_t horizonS,
                    uint32_t & delayS)
 {
@@ -79,17 +96,10 @@ bool FindBestStart(chip::Span<const Period> periods, chip::Span<const Step> prof
             return;
         }
 
-        int64_t cost    = 0;
-        uint32_t stepAt = start;
-        for (const auto & step : profile)
+        int64_t cost = 0;
+        if (!ProfileCost(periods, profile, start, cost))
         {
-            int64_t stepCost = 0;
-            if (!Cost(periods, stepAt, stepAt + step.durationS, stepCost))
-            {
-                return;
-            }
-            cost += stepCost * step.power;
-            stepAt += step.durationS;
+            return;
         }
 
         if (!found || cost < bestCost || (cost == bestCost && start < bestTime))

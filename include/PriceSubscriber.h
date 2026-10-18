@@ -52,6 +52,9 @@ public:
     /** e.g. "24.567 GBP/kWh". */
     void FormatPrice(int64_t price, char * buffer, size_t size) const;
 
+    /** An amount in the price's currency and decimal places, with no unit, e.g. "0.18 GBP". */
+    void FormatAmount(int64_t amount, char * buffer, size_t size) const;
+
     /** The current price for the status line, or "No pricing available". */
     void FormatCurrentPrice(char * buffer, size_t size) const;
 

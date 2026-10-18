@@ -25,6 +25,8 @@ public:
         kCommissioning, // The QR code and manual pairing code, while the commissioning window is open
         kEnergyMenu,    // Opt In / Opt Out, opened from Settings
         kStartChoice,   // Now / Smart
+        kOptimizing,    // Waiting a few seconds for an energy manager to move a Smart start
+        kSmartStart,    // When a Smart start will begin and what it saves, with Cancel
     };
 
     struct StartChoice
@@ -66,9 +68,12 @@ public:
 
         const StartChoice * startChoices = nullptr;
         uint8_t startChoiceCount         = 0;
-        uint8_t selectedStartChoice      = 0;
+        uint8_t selectedStartChoice      = 0; // startChoiceCount means Cancel
 
-        uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu
+        uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu; on kSmartStart, 1 is Cancel
+
+        uint8_t optimizingDots  = 1;  // On kOptimizing
+        const char * savingText = ""; // On kSmartStart
 
         const char * qrCode     = ""; // On kCommissioning
         const char * manualCode = "";

@@ -26,6 +26,12 @@ struct Step
 };
 
 /**
+ * The total of value × power × seconds for running the profile from start. Where periods overlap,
+ * the one that started most recently applies. Returns false if the periods don't cover the run.
+ */
+bool ProfileCost(chip::Span<const Period> periods, chip::Span<const Step> profile, uint32_t start, int64_t & cost);
+
+/**
  * Tries starting now, and at every time that lines the start of a step up with the start or end of
  * a period, keeping only runs that end within horizonS of now and that the periods cover
  * completely. Where periods overlap, the one that started most recently applies. The lowest total

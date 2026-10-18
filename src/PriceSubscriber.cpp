@@ -266,6 +266,13 @@ bool PriceSubscriber::GetCurrentPrice(PriceInfo & info) const
 
 void PriceSubscriber::FormatPrice(int64_t price, char * buffer, size_t size) const
 {
+    FormatAmount(price, buffer, size);
+    const size_t length = strlen(buffer);
+    snprintf(buffer + length, size - length, "%s", mTariffUnitKVAh ? "/kVAh" : "/kWh");
+}
+
+void PriceSubscriber::FormatAmount(int64_t amount, char * buffer, size_t size) const
+{
     const char * currency = "";
     char numericCurrency[12];
     switch (mCurrency)
@@ -285,8 +292,6 @@ void PriceSubscriber::FormatPrice(int64_t price, char * buffer, size_t size) con
         break;
     }
 
-    const char * unit = mTariffUnitKVAh ? "/kVAh" : "/kWh";
-
     uint8_t decimals = mHasCurrency ? std::min<uint8_t>(mDecimalPoints, 9) : 0;
     uint64_t scale   = 1;
     for (uint8_t i = 0; i < decimals; i++)
@@ -294,19 +299,18 @@ void PriceSubscriber::FormatPrice(int64_t price, char * buffer, size_t size) con
         scale *= 10;
     }
 
-    uint64_t magnitude = price < 0 ? static_cast<uint64_t>(-(price + 1)) + 1 : static_cast<uint64_t>(price);
+    uint64_t magnitude = amount < 0 ? static_cast<uint64_t>(-(amount + 1)) + 1 : static_cast<uint64_t>(amount);
     // Logging/printf on this platform doesn't do 64-bit integers reliably, so print the parts as 32-bit.
     unsigned long whole = static_cast<unsigned long>(magnitude / scale);
     unsigned long frac  = static_cast<unsigned long>(magnitude % scale);
 
     if (decimals == 0)
     {
-        snprintf(buffer, size, "%s%lu%s%s", price < 0 ? "-" : "", whole, currency, unit);
+        snprintf(buffer, size, "%s%lu%s", amount < 0 ? "-" : "", whole, currency);
     }
     else
     {
-        snprintf(buffer, size, "%s%lu.%0*lu%s%s", price < 0 ? "-" : "", whole, static_cast<int>(decimals), frac, currency,
-                 unit);
+        snprintf(buffer, size, "%s%lu.%0*lu%s", amount < 0 ? "-" : "", whole, static_cast<int>(decimals), frac, currency);
     }
 }
 
