@@ -24,6 +24,7 @@ public:
         kSettings,      // Commissioning / Energy Mgmt / Back
         kCommissioning, // The QR code and manual pairing code, while the commissioning window is open
         kEnergyMenu,    // Opt In / Opt Out, opened from Settings
+        kStartChoice,   // Now / Smart
         kReadyBy,       // When the program must be ready, on a timeline of the next day
         kOptimizing,    // Waiting a few seconds for an energy manager to move a scheduled start
         kSmartStart,    // When a scheduled start will begin and what it saves, with Cancel
@@ -55,17 +56,21 @@ public:
 
     struct View
     {
-        Screen screen             = Screen::kStatus;
-        bool hasOptedIn           = false;
-        bool isProgramSelected    = false;
-        bool isSettingsSelected   = false; // The Settings item on the program list, not a program
-        uint32_t startsIn         = 0;
-        uint32_t timeRemaining    = 0;
-        uint32_t programDurationS = 0; // The selected program's full running time
-        const char * stateText    = "";
-        const char * modeText     = "";
-        const char * phaseText    = "";
-        const char * priceText    = "";
+        Screen screen                = Screen::kStatus;
+        bool hasOptedIn              = false;
+        bool isProgramSelected       = false;
+        bool isSettingsSelected      = false; // The Settings item on the program list, not a program
+        uint32_t startsIn            = 0;
+        uint32_t timeRemaining       = 0;
+        uint32_t programDurationS    = 0; // The selected program's full running time
+        const char * stateText       = "";
+        const char * modeText        = "";
+        const char * phaseText       = "";
+        const char * priceText       = "";
+        const char * costText        = ""; // The price level, for the home screen
+        const char * delaySavingText = ""; // While waiting to start after Now: what the delay saves
+
+        uint8_t selectedStartChoice = 0; // On kStartChoice: 0 is Now, 1 is Smart
 
         uint32_t readyByS     = 0;     // On kReadyBy: how long from now it must be ready
         bool hasClock         = false; // Whether readyByClock is known
@@ -77,7 +82,7 @@ public:
         bool hasPlannedRun              = false;
         TimelineSpan plannedRun;
 
-        uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu; on kSmartStart, 1 is Cancel
+        uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu
 
         uint8_t optimizingDots  = 1;  // On kOptimizing
         const char * savingText = ""; // On kReadyBy and kSmartStart

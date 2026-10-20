@@ -323,3 +323,24 @@ void PriceSubscriber::FormatCurrentPrice(char * buffer, size_t size) const
     }
     FormatPrice(mCurrentPrice.price, buffer, size);
 }
+
+void PriceSubscriber::FormatCurrentCost(char * buffer, size_t size) const
+{
+    if (!mHasCurrentPrice || !mCurrentPrice.hasPriceLevel)
+    {
+        FormatCurrentPrice(buffer, size);
+        return;
+    }
+
+    // The levels the price server uses.
+    static const char * const kLevels[] = { "Very Low", "Low", "Medium", "High", "Very High" };
+    const int16_t level                 = mCurrentPrice.priceLevel;
+    if (level >= 0 && level < static_cast<int16_t>(MATTER_ARRAY_SIZE(kLevels)))
+    {
+        snprintf(buffer, size, "Cost now: %s", kLevels[level]);
+    }
+    else
+    {
+        snprintf(buffer, size, "Cost now: level %d", level);
+    }
+}

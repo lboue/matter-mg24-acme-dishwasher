@@ -58,6 +58,9 @@ public:
     /** The current price for the status line, or "No pricing available". */
     void FormatCurrentPrice(char * buffer, size_t size) const;
 
+    /** The current price level for the home screen, e.g. "Cost now: Very Low", or as above without a level. */
+    void FormatCurrentCost(char * buffer, size_t size) const;
+
     // ReadClient::Callback
     void OnAttributeData(const chip::app::ConcreteDataAttributePath & aPath, chip::TLV::TLVReader * apData,
                          const chip::app::StatusIB & aStatus) override;

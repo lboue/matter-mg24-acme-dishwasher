@@ -42,4 +42,11 @@ bool ProfileCost(chip::Span<const Period> periods, chip::Span<const Step> profil
 bool FindBestStart(chip::Span<const Period> periods, chip::Span<const Step> profile, uint32_t now, uint32_t horizonS,
                    uint32_t & delayS);
 
+/**
+ * Fills out with the significant times of day (00:00, 06:00, 09:00, 13:00, 18:00 and 21:00 UTC)
+ * from earliest to latest inclusive, in order. Times are Matter epoch seconds, whose epoch starts
+ * at midnight UTC. Returns how many it wrote, at most max.
+ */
+size_t SignificantTimes(uint32_t earliest, uint32_t latest, uint32_t * out, size_t max);
+
 } // namespace StartPlanner

@@ -140,4 +140,25 @@ bool FindBestStart(chip::Span<const Period> periods, chip::Span<const Step> prof
     return found;
 }
 
+size_t SignificantTimes(uint32_t earliest, uint32_t latest, uint32_t * out, size_t max)
+{
+    constexpr uint32_t kDayS     = 24 * 60 * 60;
+    constexpr uint8_t kHours[]   = { 0, 6, 9, 13, 18, 21 };
+    constexpr size_t kHoursCount = sizeof(kHours) / sizeof(kHours[0]);
+
+    size_t count = 0;
+    for (uint32_t day = earliest / kDayS * kDayS; day <= latest && count < max; day += kDayS)
+    {
+        for (size_t i = 0; i < kHoursCount && count < max; i++)
+        {
+            const uint32_t time = day + kHours[i] * 3600u;
+            if (time >= earliest && time <= latest)
+            {
+                out[count++] = time;
+            }
+        }
+    }
+    return count;
+}
+
 } // namespace StartPlanner

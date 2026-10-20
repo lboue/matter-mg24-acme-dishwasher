@@ -69,10 +69,13 @@ private:
 
     void ToggleProgram();
     void BeginProgram(uint32_t delayS, bool canMoveStart);
+    void OpenStartChoice();
+    void StartNow();
     void OpenReadyBy();
-    void SetReadyByFromNow(uint32_t secondsFromNow);
+    void SelectReadyByTime(uint8_t index);
     void RefreshReadyBy();
-    uint32_t EarliestReadyByS() const;
+    bool FindBestStartWithin(uint32_t horizonS, uint32_t & delayS, chip::Span<const StartPlanner::Period> & periods,
+                             uint32_t & now);
     void UpdateReadyBy();
     void StartReadyBy();
     void ShowScreen(StatusDisplay::Screen screen, uint8_t menuItem = 0);
@@ -82,11 +85,12 @@ private:
     bool BuildPricePeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
     bool BuildGridPeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
 
-    void TickOptimizing();
+    void TickHold();
     void ShowSmartStart();
     void CancelSmartStart();
     void UpdateSmartSaving();
-    void FormatSaving(chip::Span<const StartPlanner::Period> periods, uint32_t now, uint32_t delayS);
+    void FormatSaving(chip::Span<const StartPlanner::Period> periods, uint32_t now, uint32_t delayS, char * buffer, size_t size,
+                      const char * savesWord = "Saves");
     void UpdateCheapSpans(chip::Span<const StartPlanner::Period> periods, uint32_t now);
     uint32_t GetProgramDuration() const;
     chip::Span<const StartPlanner::Step> GetPowerProfile() const;
@@ -118,10 +122,20 @@ private:
     // last program.
     bool mIsSettingsSelected = false;
 
+    // The START screen: 0 is Now, 1 is Smart.
+    uint8_t mSelectedStartChoice = 0;
+
+    // Smart's choice of Ready By times: the significant times of day in the next day that the
+    // program can make, and which is selected.
+    static constexpr uint8_t kMaxReadyByTimes = 8;
+    uint32_t mReadyByTimes[kMaxReadyByTimes];
+    uint8_t mReadyByTimeCount = 0;
+    uint8_t mReadyByIndex     = 0;
+
     // The Ready By screen: how long from now the program must finish, and the best start within
     // that, which a click uses.
     uint32_t mReadyByS      = 0;
-    uint32_t mReadyByAt     = 0; // The same as a clock time on a quarter hour, or 0 without the clock
+    uint32_t mReadyByAt     = 0; // The same as a clock time, or 0 while planning over a whole day
     bool mReadyByHasStart   = false;
     uint32_t mReadyByDelayS = 0;
     bool mSmartUsesPrice    = false; // Whether that start came from the price, or the grid conditions
@@ -134,9 +148,14 @@ private:
     // DEM forecast's latestEndTime, and the limit for energy manager adjustments.
     uint32_t mReadyByEpoch = 0;
 
-    uint8_t mOptimizingTicksLeft = 0;
-    bool mHoldingStart           = false; // While Optimizing: don't start yet, so an energy manager can move it
+    // A start held for a few seconds so an energy manager can move it, while Optimizing shows (Smart)
+    // or silently (Now).
+    bool mHoldingStart     = false;
+    uint8_t mHoldTicksLeft = 0;
     char mSavingText[40]         = "";
+
+    // What a delay chosen by Now saves, shown while it waits to start.
+    char mDelaySavingText[40] = "";
 
     // The highlighted row on the Settings and Energy Mgmt pages.
     uint8_t mMenuItem = 0;

@@ -24,7 +24,7 @@ The dev kit has two buttons, and the OLED and rotary encoder are wired to its ex
 | ------- | ----- | ------------ |
 | Power on/off | On/Off button | **BTN1** press |
 | Select program | Rotary encoder | **Encoder** turn, or `dishwasher mode` |
-| Start | Start button | **Encoder** click on a program, set Ready By, click again; or `dishwasher start` |
+| Start | Start button | **Encoder** click on a program, then **Now**, or **Smart** and a Ready By time; or `dishwasher start` |
 | Pause / resume | Start button | **Encoder** click while running, or `dishwasher start` |
 | Energy management opt-in | Menu (rotary click and turn) | **Encoder**: **Settings** → **Energy Mgmt**, turn to choose, click to apply; or `dishwasher optin on\|off` |
 | Share with another controller | — | **Encoder**: **Settings** → **Commissioning** shows the QR and manual pairing codes |
@@ -61,7 +61,7 @@ A 1.3" 128x64 SH1106 I2C OLED (the common 4-pin VCC/GND/SCL/SDA module; 0.96" SS
 The 7-pin modules (with D0, D1, RES, DC and CS) come set for SPI. Even converted to I2C (R3 moved to R1, R8 bridged, DC and CS grounded), the one tried here never ACKed, so use a 4-pin module.
 
 The OLED shows:
-- **Normal screen:** the state in an inverted title bar, with **EM** at the right when you've opted into energy management. Below that: the program in large text, the phase, the time (how long the selected program runs before it starts, then the time left while it runs; blank on Settings), and the price on the bottom row.
+- **Normal screen:** the state in an inverted title bar, with **EM** at the right when you've opted into energy management. Below that: the program in large text, the phase, the time (how long the selected program runs before it starts, then the time left while it runs; blank on Settings), and the current price level on the bottom row (`Cost now: Very Low` … `Very High`, from the price server's level 0–4; the price itself if the server sends no level).
 - **Delayed start:** a large countdown, with the program and the price below it.
 
 The display is off while the dishwasher is off.
@@ -98,11 +98,14 @@ With the dishwasher on and no program started, turning the knob moves through Ec
 
 On the Commissioning and Energy Mgmt pages, BTN0 goes back to Settings without changing anything. Settings itself is left with Back, or BTN0. On both pages the selection wraps around from the last item to the first, and back.
 
-Clicking a program opens the **START** screen, where you set when the dishes must be ready:
+Clicking a program opens the **START** screen, with two boxes: **Now** and **Smart**. Turn to swap between them, and click to choose. With no forecast or no clock, there's nothing to plan with, so clicking a program just starts it.
+
+- **Now** starts within the next 30 minutes, at the cheapest time in that half hour, which is usually straight away. If it waits, the home screen counts down (STARTING IN), with what the wait saves on the bottom line (`Delay saves 0.04 GBP`) instead of the price. When you're opted into energy management, the DEM forecast offers that half hour (`latestEndTime` = now + 30 min + run time), so an energy manager can move the start within it. If the best time is now, the start is held for 5 seconds first, so it can still be moved.
+- **Smart** opens the Ready By screen:
 
 ```
 START - ECO 50°
-Ready by 06:30 UTC
+Ready by 06:00 UTC
 Saves 0.18 GBP
           ░░░░░░            cheapest periods (dotted)
      ████ ░░░░░░            planned run (solid)
@@ -110,17 +113,17 @@ Saves 0.18 GBP
               ▲
 ```
 
-- **Ready By** starts at the earliest the program could finish (now plus its run time, rounded up to 15 minutes). Turn the knob to move it later or earlier in 15-minute steps, up to 24 hours ahead. The arrow under the line shows where it is in the next 24 hours. Above the line, the cheapest quarter of the forecast periods (by price, or by carbon intensity with only grid data) is lightly dotted. When you're opted out, the planned run is drawn as a solid block on top, so as you turn, you can see it move into the cheap periods. The time is in UTC, because the device has no time zone. Until the clock is set, it shows `Ready in 3:30` instead.
+- **Ready By** steps through the significant times of day, **00:00, 06:00, 09:00, 13:00, 18:00 and 21:00 UTC**, in order from now. It offers only the times the program can finish by, up to 24 hours ahead, and opens on the one with the biggest saving (the earliest that the best start within the day finishes by). The arrow under the line shows where it is in the next 24 hours. Above the line, the cheapest quarter of the forecast periods (by price, or by carbon intensity with only grid data) is lightly dotted. When you're opted out, the planned run is drawn as a solid block on top, so as you turn, you can see it move into the cheap periods. The times are UTC, because the device has no time zone.
 - **Click** to start at the best time that still finishes by then: the cheapest, from the current price and the price forecast, or with no price forecast, the lowest carbon intensity from the grid-conditions forecast. With neither (or no clock), it starts straight away.
 - **When you're opted out of energy management**, a line under the time shows what the best start saves compared with starting now (`Saves 0.18 GBP`, `Saves 120 gCO2` or `No saving`). It updates as you turn. When you're opted in, it's blank, because the energy manager may move the start.
 - **After the click**, if you're opted in, an **Optimizing…** screen shows for 5 seconds, so an energy manager can move the start (`StartTimeAdjustRequest`). The program is scheduled at the cheapest start, but held until Optimizing ends, even if that start is now. So with no adjustment it runs at the cheapest time, at most a few seconds late. The DEM forecast's `latestEndTime` is the Ready By time, and adjustments that would finish later are refused.
-- **A SMART START screen** then shows when it will start (`Starts in 2:30:00`, counting down), when it will be done (`Ready at 17:37 UTC`, the start plus the run time), and what that saves compared with starting now. If the energy manager moved it somewhere worse, it shows `Costs … more`. Click to confirm. Turning highlights **Cancel**, and clicking Cancel drops the schedule and returns to the home screen, with the same program still selected. If the best start is now and you're opted out, the program just starts.
+- **A SMART START screen** then shows how long until it starts, in large text and counting down, then when it will be done (`Ready at 17:37 UTC`, the start plus the run time) and what that saves compared with starting now. If the energy manager moved it somewhere worse, it shows `Costs … more`. Click to confirm, or press BTN0 to cancel, which drops the schedule and returns to the home screen with the same program still selected. If the best start is now and you're opted out, the program just starts.
 
-**BTN0 is the Cancel / Back button.** It leaves START, Settings, Energy Mgmt and Commissioning, cancels a scheduled start on Optimizing or SMART START, and stops a program that's waiting or running. On the home screen with nothing running, it does nothing.
+**BTN0 is the Cancel / Back button.** It leaves START, Ready By, Settings, Energy Mgmt and Commissioning, cancels a scheduled start on Optimizing or SMART START, and stops a program that's waiting or running. On the home screen with nothing running, it does nothing.
 
 While the program waits to start, a click does nothing. While it runs, a click pauses or resumes it.
 
-The previous START screen (Now / Smart boxes) is kept in the `archive/now-smart-start` tag.
+Earlier versions are kept in tags: `archive/now-smart-start` (Now / Smart only) and `ready-by-poc-1` (Ready By only, in 15-minute steps).
 
 The pins, the steps per click (`ROTARY_ENCODER_STEPS_PER_DETENT`, 4 by default; some encoders need 2), the long-press time (`ROTARY_ENCODER_LONG_PRESS_MS`, 1000) and the direction (`ROTARY_ENCODER_REVERSE`) are defines in `include/RotaryEncoder.h`.
 
