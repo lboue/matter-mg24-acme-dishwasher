@@ -3,6 +3,7 @@
 #include "StartPlanner.h"
 #include "StatusDisplay.h"
 
+#include <app-common/zap-generated/cluster-enums.h>
 #include <app/clusters/operational-state-server/operational-state-server.h>
 #include <app/data-model/Nullable.h>
 #include <lib/core/CHIPError.h>
@@ -52,7 +53,12 @@ public:
     void ResumeProgram();
 
     void UpdateMode(uint8_t mode);
-    CHIP_ERROR AdjustStartTime(uint32_t newStartTime);
+    using AdjustmentCauseEnum  = chip::app::Clusters::DeviceEnergyManagement::AdjustmentCauseEnum;
+    using ForecastUpdateReason = chip::app::Clusters::DeviceEnergyManagement::ForecastUpdateReasonEnum;
+
+    // A StartTimeAdjust command. Moves the start and publishes the new forecast, giving the cause as
+    // its update reason.
+    CHIP_ERROR AdjustStartTime(uint32_t newStartTime, AdjustmentCauseEnum cause);
 
     OperationalStateEnum GetOperationalState() const { return mState; }
     uint8_t GetCurrentMode() const { return mMode; }
@@ -85,6 +91,9 @@ private:
     bool BuildPricePeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
     bool BuildGridPeriods(chip::Span<const StartPlanner::Period> & periods, uint32_t & now) const;
 
+    void BuildPriceList();
+    void RefreshClockScreens();
+
     void TickHold();
     void ShowSmartStart();
     void CancelSmartStart();
@@ -98,7 +107,7 @@ private:
     void EndProgram();
     void UpdateOperationState(OperationalStateEnum state);
     void UpdateCurrentPhase(uint8_t phase);
-    void SetForecast();
+    void SetForecast(ForecastUpdateReason reason = ForecastUpdateReason::kInternalOptimization);
     void ClearForecast();
 
     OperationalStateEnum mState = OperationalStateEnum::kStopped;
@@ -159,6 +168,16 @@ private:
 
     // The highlighted row on the Settings and Energy Mgmt pages.
     uint8_t mMenuItem = 0;
+
+    // The Pricing page: the selected row in the whole list, the first row shown, and the rows shown.
+    uint8_t mPriceCursor     = 0;
+    uint8_t mPriceTop        = 0;
+    uint8_t mPriceListCount  = 0;
+    StatusDisplay::MenuLine mPriceLines[StatusDisplay::kMaxPriceLines];
+    uint8_t mPriceLineCount  = 0;
+
+    // The minute last shown on the Settings and Pricing pages, so they redraw as the clock moves on.
+    uint32_t mShownMinute = 0;
 
     // The onboarding codes shown on the Commissioning page.
     char mQrCode[chip::QRCodeBasicSetupPayloadGenerator::kMaxQRCodeBase38RepresentationLength + 1] = "";

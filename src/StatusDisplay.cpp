@@ -110,21 +110,23 @@ void DrawStatus(bool hasOptedIn, uint32_t timeRemaining, const char * stateText,
     sOled.DrawText(0, kLine7Y, costText);
 }
 
-// One full-width menu row, with optional text at the right. The selected row is inverted.
-void DrawMenuRow(uint8_t index, const char * left, const char * right, bool selected)
-{
-    constexpr int kFirstRowY = 14;
-    constexpr int kRowHeight = 11;
+// Menu rows below the title bar.
+constexpr int kMenuFirstRowY = 14;
+constexpr int kMenuRowHeight = 11;
 
-    const int y = kFirstRowY + index * kRowHeight;
+// One menu row, full width unless narrowed, with optional text at the right. The selected row is
+// inverted.
+void DrawMenuRow(uint8_t index, const char * left, const char * right, bool selected, int width = Ssd1306::kWidth)
+{
+    const int y = kMenuFirstRowY + index * kMenuRowHeight;
     if (selected)
     {
-        sOled.FillRect(0, y - 1, Ssd1306::kWidth, Ssd1306::kCharHeight + 2, true);
+        sOled.FillRect(0, y - 1, width, Ssd1306::kCharHeight + 2, true);
     }
     sOled.DrawText(2, y, left, 1, !selected);
     if (right != nullptr)
     {
-        sOled.DrawText(Ssd1306::kWidth - 2 - Ssd1306::TextWidth(right), y, right, 1, !selected);
+        sOled.DrawText(width - 2 - Ssd1306::TextWidth(right), y, right, 1, !selected);
     }
 }
 
@@ -281,15 +283,41 @@ void DrawSmartStart(uint32_t startsIn, bool hasReadyAt, uint32_t readyAtClock, c
     sOled.DrawText(0, kLine7Y, savingText);
 }
 
-void DrawSettings(uint8_t selected, bool hasOptedIn)
+void DrawSettings(uint8_t selected, bool hasOptedIn, const char * clockText, const char * pricingSummary)
 {
-    DrawTitleBar("SETTINGS", nullptr);
+    DrawTitleBar("SETTINGS", clockText);
 
     DrawMenuRow(StatusDisplay::kSettingsCommissioning, "Commissioning", nullptr,
                 selected == StatusDisplay::kSettingsCommissioning);
     DrawMenuRow(StatusDisplay::kSettingsEnergy, "Energy Mgmt", hasOptedIn ? "In" : "Out",
                 selected == StatusDisplay::kSettingsEnergy);
+    DrawMenuRow(StatusDisplay::kSettingsPricing, "Pricing", pricingSummary, selected == StatusDisplay::kSettingsPricing);
     DrawMenuRow(StatusDisplay::kSettingsBack, "Back", nullptr, selected == StatusDisplay::kSettingsBack);
+}
+
+// A window onto the list of prices, with a scrollbar at the right when it doesn't all fit.
+void DrawPricing(const StatusDisplay::View & view)
+{
+    constexpr int kScrollbarWidth = 2;
+
+    DrawTitleBar("PRICES", view.priceUnit);
+
+    const bool scrolls = view.priceListCount > StatusDisplay::kMaxPriceLines;
+    const int rowWidth = scrolls ? Ssd1306::kWidth - kScrollbarWidth - 1 : Ssd1306::kWidth;
+    for (uint8_t i = 0; i < view.priceLineCount; i++)
+    {
+        const char * right = view.priceLines[i].right[0] != '\0' ? view.priceLines[i].right : nullptr;
+        DrawMenuRow(i, view.priceLines[i].left, right, i == view.priceSelectedLine, rowWidth);
+    }
+
+    if (scrolls)
+    {
+        const int trackTop    = kMenuFirstRowY - 1;
+        const int trackHeight = Ssd1306::kHeight - trackTop;
+        const int thumbTop    = trackTop + trackHeight * view.priceListTop / view.priceListCount;
+        const int thumbHeight = trackHeight * StatusDisplay::kMaxPriceLines / view.priceListCount;
+        sOled.FillRect(Ssd1306::kWidth - kScrollbarWidth, thumbTop, kScrollbarWidth, thumbHeight > 2 ? thumbHeight : 2, true);
+    }
 }
 
 void DrawEnergyMenu(uint8_t selected)
@@ -401,9 +429,17 @@ void StatusDisplay::UpdateDisplay(const View & view)
 
     if (view.screen == Screen::kSettings)
     {
-        static const char * const kItems[] = { "Commissioning", "Energy Mgmt", "Back" };
-        snprintf(status, sizeof(status), "SETTINGS | %s | EM %s", kItems[view.selectedMenuItem], optInText);
-        DrawSettings(view.selectedMenuItem, view.hasOptedIn);
+        static const char * const kItems[] = { "Commissioning", "Energy Mgmt", "Pricing", "Back" };
+        snprintf(status, sizeof(status), "SETTINGS | %s | EM %s | %s | price %s", kItems[view.selectedMenuItem], optInText,
+                 view.clockText, view.pricingSummary);
+        DrawSettings(view.selectedMenuItem, view.hasOptedIn, view.clockText, view.pricingSummary);
+    }
+    else if (view.screen == Screen::kPricing)
+    {
+        const MenuLine * selected = view.priceSelectedLine < view.priceLineCount ? &view.priceLines[view.priceSelectedLine] : nullptr;
+        snprintf(status, sizeof(status), "PRICES | %s %s | %u/%u", selected ? selected->left : "", selected ? selected->right : "",
+                 static_cast<unsigned>(view.priceListTop + view.priceSelectedLine + 1), static_cast<unsigned>(view.priceListCount));
+        DrawPricing(view);
     }
     else if (view.screen == Screen::kCommissioning)
     {

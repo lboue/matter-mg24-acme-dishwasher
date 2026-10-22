@@ -55,6 +55,15 @@ public:
     /** An amount in the price's currency and decimal places, with no unit, e.g. "0.18 GBP". */
     void FormatAmount(int64_t amount, char * buffer, size_t size) const;
 
+    /** An amount as a number alone, in the price's decimal places, e.g. "0.18". */
+    void FormatValue(int64_t amount, char * buffer, size_t size) const;
+
+    /** What prices are per, e.g. "GBP/kWh". */
+    void FormatUnit(char * buffer, size_t size) const;
+
+    /** A price level in a few letters, e.g. "V.Low". */
+    static const char * ShortLevelName(int16_t level);
+
     /** The current price for the status line, or "No pricing available". */
     void FormatCurrentPrice(char * buffer, size_t size) const;
 
@@ -74,6 +83,7 @@ private:
 
     static void OnPlatformEvent(const chip::DeviceLayer::ChipDeviceEvent * event, intptr_t arg);
 
+    const char * CurrencySuffix() const;
     void ClearPrices();
     void PricesChanged();
 

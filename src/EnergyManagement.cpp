@@ -20,11 +20,12 @@ DishwasherEnergyDelegate gDishwasherEnergyDelegate;
 CHIP_ERROR DishwasherEnergyDelegate::HandleDeviceEnergyManagementStartTimeAdjustRequest(const uint32_t requestedStartTimeUtc,
                                                                                        AdjustmentCauseEnum cause)
 {
-    ChipLogProgress(AppServer, "StartTime Adjustment received: New start time: %lu",
-                    static_cast<unsigned long>(requestedStartTimeUtc));
+    ChipLogProgress(AppServer, "StartTime Adjustment received: New start time: %lu, cause %u",
+                    static_cast<unsigned long>(requestedStartTimeUtc), static_cast<unsigned>(to_underlying(cause)));
 
-    // The reference delegate has already moved the forecast; we just need to move our own start.
-    return DishwasherMgr().AdjustStartTime(requestedStartTimeUtc);
+    // The reference delegate has already moved its copy of the forecast. The dishwasher moves its start
+    // and replaces that copy with its own forecast, so the forecast ID stays in step with ours.
+    return DishwasherMgr().AdjustStartTime(requestedStartTimeUtc, cause);
 }
 
 CHIP_ERROR DeviceEnergyManagement::EnergyManagementInit()

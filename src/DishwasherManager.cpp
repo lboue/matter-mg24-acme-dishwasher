@@ -41,6 +41,12 @@ constexpr uint32_t kOptimisationDelayS = 60;
 // How long Optimizing shows after choosing Smart while opted in, for an energy manager to move the start.
 constexpr uint8_t kOptimizingS = 5;
 
+// Whether a price period is over. Without the time, nothing is.
+bool HasEnded(const PriceSubscriber::PriceInfo & info, bool hasNow, uint32_t now)
+{
+    return hasNow && info.periodEnd != 0 && info.periodEnd <= now;
+}
+
 // Indices into OperationalStateDelegate's phase list.
 enum Phase : uint8_t
 {
@@ -153,6 +159,7 @@ void DishwasherManager::ProgramTick(System::Layer * layer, void * context)
     DishwasherMgr().CheckCommissioningWindow();
     DishwasherMgr().TickHold();
     DishwasherMgr().ProgressProgram();
+    DishwasherMgr().RefreshClockScreens();
     TEMPORARY_RETURN_IGNORED layer->StartTimer(kTickInterval, ProgramTick, context);
 }
 
@@ -225,6 +232,21 @@ void DishwasherManager::HandleWheelTurned(int8_t direction)
 {
     if (!mIsPoweredOn)
     {
+        return;
+    }
+
+    if (mScreen == Screen::kPricing)
+    {
+        // Stops at either end, as the list can be long. BuildPriceList() keeps it within the list.
+        if (direction < 0 && mPriceCursor > 0)
+        {
+            mPriceCursor--;
+        }
+        else if (direction > 0 && mPriceCursor + 1 < mPriceListCount)
+        {
+            mPriceCursor++;
+        }
+        UpdateDishwasherDisplay();
         return;
     }
 
@@ -310,6 +332,11 @@ void DishwasherManager::HandleWheelClicked()
         case StatusDisplay::kSettingsEnergy:
             ShowScreen(Screen::kEnergyMenu, mOptedIntoEnergyManagement ? StatusDisplay::kEnergyOptIn : StatusDisplay::kEnergyOptOut);
             break;
+        case StatusDisplay::kSettingsPricing:
+            mPriceCursor = 0;
+            mPriceTop    = 0;
+            ShowScreen(Screen::kPricing);
+            break;
         default:
             ShowScreen(Screen::kStatus);
             break;
@@ -322,6 +349,9 @@ void DishwasherManager::HandleWheelClicked()
     case Screen::kEnergyMenu:
         SetEnergyManagementOptIn(mMenuItem == StatusDisplay::kEnergyOptIn);
         ShowScreen(Screen::kSettings, StatusDisplay::kSettingsEnergy);
+        return;
+    case Screen::kPricing:
+        ShowScreen(Screen::kSettings, StatusDisplay::kSettingsPricing);
         return;
     case Screen::kOptimizing:
         return;
@@ -394,6 +424,9 @@ void DishwasherManager::HandleCancelButton()
         return;
     case Screen::kEnergyMenu:
         ShowScreen(Screen::kSettings, StatusDisplay::kSettingsEnergy);
+        return;
+    case Screen::kPricing:
+        ShowScreen(Screen::kSettings, StatusDisplay::kSettingsPricing);
         return;
     case Screen::kSettings:
     case Screen::kStartChoice:
@@ -1007,7 +1040,7 @@ void DishwasherManager::BeginProgram(uint32_t delayS, bool canMoveStart)
     UpdateDishwasherDisplay();
 }
 
-CHIP_ERROR DishwasherManager::AdjustStartTime(uint32_t newStartTime)
+CHIP_ERROR DishwasherManager::AdjustStartTime(uint32_t newStartTime, AdjustmentCauseEnum cause)
 {
     VerifyOrReturnError(mOptedIntoEnergyManagement, CHIP_ERROR_INCORRECT_STATE,
                         ChipLogError(AppServer, "Not opted into energy management, ignoring start time adjustment"));
@@ -1030,6 +1063,10 @@ CHIP_ERROR DishwasherManager::AdjustStartTime(uint32_t newStartTime)
     mDelayedStartTimeRemaining = newStartTime > now ? newStartTime - now : 0;
     mDelaySavingText[0]        = '\0'; // Worked out for the old start
     ChipLogProgress(AppServer, "Program will now start in %lus", static_cast<unsigned long>(mDelayedStartTimeRemaining));
+
+    // Publish the moved forecast ourselves, so it has our next forecast ID and says who moved it.
+    SetForecast(cause == AdjustmentCauseEnum::kGridOptimization ? ForecastUpdateReason::kGridOptimization
+                                                                : ForecastUpdateReason::kLocalOptimization);
 
     UpdateDishwasherDisplay();
     return CHIP_NO_ERROR;
@@ -1190,7 +1227,7 @@ void DishwasherManager::UpdateMode(uint8_t mode)
     UpdateDishwasherDisplay();
 }
 
-void DishwasherManager::SetForecast()
+void DishwasherManager::SetForecast(ForecastUpdateReason reason)
 {
     // Get the current time the CHIP way... via the Time Synchronization cluster, as there's no SNTP over Thread.
     uint32_t now = 0;
@@ -1202,7 +1239,7 @@ void DishwasherManager::SetForecast()
     }
 
     sForecastStruct.forecastID           = ++mCurrentForecastId;
-    sForecastStruct.forecastUpdateReason = DeviceEnergyManagement::ForecastUpdateReasonEnum::kInternalOptimization;
+    sForecastStruct.forecastUpdateReason = reason;
     sForecastStruct.startTime            = now + mDelayedStartTimeRemaining;
     sForecastStruct.endTime              = now + mDelayedStartTimeRemaining + mRunningTimeRemaining;
 
@@ -1250,6 +1287,105 @@ void DishwasherManager::ClearForecast()
 //***********
 //* DISPLAY *
 //***********
+
+void DishwasherManager::BuildPriceList()
+{
+    constexpr uint8_t kLines = StatusDisplay::kMaxPriceLines;
+
+    PriceSubscriber & prices = PriceSubscriber::Instance();
+    uint32_t now             = 0;
+    const bool hasNow        = WallClock::Instance().GetMatterEpochSeconds(now);
+
+    PriceSubscriber::PriceInfo current;
+    const bool showCurrent = prices.GetCurrentPrice(current) && current.hasPrice && !HasEnded(current, hasNow, now);
+    const auto forecast    = prices.GetForecast();
+
+    // The rows in order: the current price, then the forecast periods that haven't ended. Calls
+    // visit(row, info) for each, and returns how many there are.
+    auto forEachRow = [&](auto && visit) {
+        size_t count = 0;
+        if (showCurrent)
+        {
+            visit(count++, current);
+        }
+        for (const auto & entry : forecast)
+        {
+            if ((!entry.hasPrice && !entry.hasPriceLevel) || HasEnded(entry, hasNow, now) ||
+                (showCurrent && entry.periodStart == current.periodStart))
+            {
+                continue;
+            }
+            visit(count++, entry);
+        }
+        return count;
+    };
+
+    mPriceListCount = static_cast<uint8_t>(forEachRow([](size_t, const PriceSubscriber::PriceInfo &) {}));
+    if (mPriceListCount == 0)
+    {
+        mPriceCursor    = 0;
+        mPriceTop       = 0;
+        mPriceLineCount = 1;
+        prices.FormatCurrentPrice(mPriceLines[0].left, sizeof(mPriceLines[0].left));
+        mPriceLines[0].right[0] = '\0';
+        return;
+    }
+
+    // Keep the cursor in the list, which shrinks as periods end, and on screen.
+    mPriceCursor = std::min<uint8_t>(mPriceCursor, static_cast<uint8_t>(mPriceListCount - 1));
+    if (mPriceCursor < mPriceTop)
+    {
+        mPriceTop = mPriceCursor;
+    }
+    else if (mPriceCursor >= mPriceTop + kLines)
+    {
+        mPriceTop = static_cast<uint8_t>(mPriceCursor - kLines + 1);
+    }
+    mPriceTop = std::min<uint8_t>(mPriceTop, mPriceListCount > kLines ? static_cast<uint8_t>(mPriceListCount - kLines) : 0);
+
+    mPriceLineCount = 0;
+    forEachRow([&](size_t row, const PriceSubscriber::PriceInfo & info) {
+        if (row < mPriceTop || row >= mPriceTop + kLines)
+        {
+            return;
+        }
+        StatusDisplay::MenuLine & line = mPriceLines[mPriceLineCount++];
+
+        char value[16] = "";
+        if (info.hasPrice)
+        {
+            prices.FormatValue(info.price, value, sizeof(value));
+        }
+
+        const bool isNow = hasNow && info.periodStart <= now && (info.periodEnd == 0 || now < info.periodEnd);
+        if (isNow)
+        {
+            snprintf(line.left, sizeof(line.left), "Now   %s", value);
+        }
+        else
+        {
+            const uint32_t secondOfDay = info.periodStart % (24 * 60 * 60);
+            snprintf(line.left, sizeof(line.left), "%02u:%02u %s", static_cast<unsigned>(secondOfDay / 3600),
+                     static_cast<unsigned>((secondOfDay / 60) % 60), value);
+        }
+        snprintf(line.right, sizeof(line.right), "%s", info.hasPriceLevel ? PriceSubscriber::ShortLevelName(info.priceLevel) : "");
+    });
+}
+
+void DishwasherManager::RefreshClockScreens()
+{
+    if (mScreen != Screen::kSettings && mScreen != Screen::kPricing)
+    {
+        return;
+    }
+
+    // Redraw as the minute changes, so the clock moves on and ended prices drop off.
+    uint32_t now = 0;
+    if (WallClock::Instance().GetMatterEpochSeconds(now) && now / 60 != mShownMinute)
+    {
+        UpdateDishwasherDisplay();
+    }
+}
 
 void DishwasherManager::UpdateDishwasherDisplay()
 {
@@ -1300,6 +1436,39 @@ void DishwasherManager::UpdateDishwasherDisplay()
     char costBuffer[40];
     PriceSubscriber::Instance().FormatCurrentCost(costBuffer, sizeof(costBuffer));
 
+    // The time and whether there's a price, for Settings.
+    uint32_t now       = 0;
+    char clockText[16] = "No time";
+    const bool hasNow  = WallClock::Instance().GetMatterEpochSeconds(now);
+    if (hasNow)
+    {
+        mShownMinute               = now / 60;
+        const uint32_t secondOfDay = now % (24 * 60 * 60);
+        snprintf(clockText, sizeof(clockText), "%02u:%02u UTC", static_cast<unsigned>(secondOfDay / 3600),
+                 static_cast<unsigned>((secondOfDay / 60) % 60));
+    }
+
+    const char * pricingSummary = "None";
+    PriceSubscriber::PriceInfo currentPrice;
+    if (PriceSubscriber::Instance().GetCurrentPrice(currentPrice) && !HasEnded(currentPrice, hasNow, now))
+    {
+        if (currentPrice.hasPriceLevel)
+        {
+            pricingSummary = PriceSubscriber::ShortLevelName(currentPrice.priceLevel);
+        }
+        else if (currentPrice.hasPrice)
+        {
+            pricingSummary = "Live";
+        }
+    }
+
+    char priceUnit[16];
+    PriceSubscriber::Instance().FormatUnit(priceUnit, sizeof(priceUnit));
+    if (mScreen == Screen::kPricing)
+    {
+        BuildPriceList();
+    }
+
     StatusDisplay::View view;
     view.screen              = mScreen;
     view.hasOptedIn          = mOptedIntoEnergyManagement;
@@ -1323,9 +1492,7 @@ void DishwasherManager::UpdateDishwasherDisplay()
     if (mScreen == Screen::kSmartStart)
     {
         // When it will finish: the start plus the run time.
-        uint32_t now      = 0;
-        view.readyByClock = WallClock::Instance().GetMatterEpochSeconds(now) ? now + mDelayedStartTimeRemaining + mRunningTimeRemaining
-                                                                             : 0;
+        view.readyByClock = hasNow ? now + mDelayedStartTimeRemaining + mRunningTimeRemaining : 0;
     }
     view.hasClock            = view.readyByClock != 0;
     view.cheapSpans          = mCheapSpans;
@@ -1339,6 +1506,14 @@ void DishwasherManager::UpdateDishwasherDisplay()
     view.optimizingDots      = static_cast<uint8_t>((kOptimizingS - mHoldTicksLeft) % 3 + 1);
     view.selectedStartChoice = mSelectedStartChoice;
     view.savingText          = mSavingText;
+    view.clockText           = clockText;
+    view.pricingSummary      = pricingSummary;
+    view.priceUnit           = priceUnit;
+    view.priceLines          = mPriceLines;
+    view.priceLineCount      = mPriceLineCount;
+    view.priceSelectedLine   = static_cast<uint8_t>(mPriceCursor - mPriceTop);
+    view.priceListCount      = mPriceListCount;
+    view.priceListTop        = mPriceTop;
 
     StatusDisplay::Instance().UpdateDisplay(view);
 }

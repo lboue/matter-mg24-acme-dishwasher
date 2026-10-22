@@ -90,13 +90,14 @@ A KY-040 style encoder with a push switch. Only EXP10 is otherwise free (EXP5 an
 | + | 3V3 | |
 | GND | GND | |
 
-With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick, Heavy and **Settings**. Settings isn't a program: clicking it opens the **SETTINGS** page, a list of three items. Turn to choose, and click to open:
+With the dishwasher on and no program started, turning the knob moves through Eco, Chef, Quick, Heavy and **Settings**. Settings isn't a program: clicking it opens the **SETTINGS** page, a list of four items, with the time at the right of the title bar (`14:05 UTC`, or `No time` until Time Synchronization has set the clock). Turn to choose, and click to open:
 
 - **Commissioning** opens the commissioning window, so you can add the dishwasher to another Matter controller (multi-admin). The page shows the QR code and the 11-digit manual pairing code. A click closes the window and goes back. The page also goes back by itself when the window closes, after 15 minutes or once a controller has finished commissioning.
 - **Energy Mgmt** shows Opt In and Opt Out, starting on the current choice. Turn to choose, and click to apply it and go back. The Settings page shows the current choice (In/Out) next to the item.
+- **Pricing** shows the current and future prices from the price server, one row per period: its start (`Now` for the current one) and price, with the level at the right (`V.Low`, `Low`, `Med`, `High`, `V.High`), and the unit in the title bar. Periods that have ended are left out, so stale data from a price server that has gone away shows as `Price unknown` rather than old prices. Turn to scroll (a scrollbar shows when there are more than four rows; the list stops at either end), and click to go back. The Settings page shows the current level next to the item, `Live` for a price with no level, or `None`.
 - **Back** returns to the main screen.
 
-On the Commissioning and Energy Mgmt pages, BTN0 goes back to Settings without changing anything. Settings itself is left with Back, or BTN0. On both pages the selection wraps around from the last item to the first, and back.
+On the Commissioning, Energy Mgmt and Pricing pages, BTN0 goes back to Settings without changing anything. Settings itself is left with Back, or BTN0. On Settings and Energy Mgmt the selection wraps around from the last item to the first, and back.
 
 Clicking a program opens the **START** screen, with two boxes: **Now** and **Smart**. Turn to swap between them, and click to choose. With no forecast or no clock, there's nothing to plan with, so clicking a program just starts it.
 
@@ -119,7 +120,7 @@ Saves 0.18 GBP
 - **After the click**, if you're opted in, an **Optimizing…** screen shows for 5 seconds, so an energy manager can move the start (`StartTimeAdjustRequest`). The program is scheduled at the cheapest start, but held until Optimizing ends, even if that start is now. So with no adjustment it runs at the cheapest time, at most a few seconds late. The DEM forecast's `latestEndTime` is the Ready By time, and adjustments that would finish later are refused.
 - **A SMART START screen** then shows how long until it starts, in large text and counting down, then when it will be done (`Ready at 17:37 UTC`, the start plus the run time) and what that saves compared with starting now. If the energy manager moved it somewhere worse, it shows `Costs … more`. Click to confirm, or press BTN0 to cancel, which drops the schedule and returns to the home screen with the same program still selected. If the best start is now and you're opted out, the program just starts.
 
-**BTN0 is the Cancel / Back button.** It leaves START, Ready By, Settings, Energy Mgmt and Commissioning, cancels a scheduled start on Optimizing or SMART START, and stops a program that's waiting or running. On the home screen with nothing running, it does nothing.
+**BTN0 is the Cancel / Back button.** It leaves START, Ready By, Settings, Energy Mgmt, Pricing and Commissioning, cancels a scheduled start on Optimizing or SMART START, and stops a program that's waiting or running. On the home screen with nothing running, it does nothing.
 
 While the program waits to start, a click does nothing. While it runs, a click pauses or resumes it.
 
@@ -216,6 +217,8 @@ Starting a program publishes a forecast with one slot per program step. The prog
 The Operational State phase (pre-soak, main-wash, rinse, final-rinse, drying) follows the steps. The programs are defined in `kPrograms` in `src/DishwasherManager.cpp`. The Ready By planner weights each step by its power, so it tries to put the heating steps in the cheapest (or greenest) periods.
 
 When the program is started with the Matter Start command or `dishwasher start` and you have opted in, the start is delayed by 60 s so an energy manager can move it with `StartTimeAdjustRequest`. A Ready By start also leaves an energy manager a window when you're opted in, but its latest end is the Ready By time. Otherwise the forecast's earliest start is now and its latest end is 24 h away. When you're opted out, there's no start window and adjustments are refused.
+
+An accepted adjustment publishes a new forecast with the next forecast ID, the new start and end times, and a `forecastUpdateReason` that matches the command's cause: `LocalOptimization` (1) for cause 0, and `GridOptimization` (2) for cause 1. The dishwasher's own forecasts, such as the one published when a program is started, use `InternalOptimization` (0).
 
 ## Commodity Price
 

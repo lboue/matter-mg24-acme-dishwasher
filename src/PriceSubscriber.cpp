@@ -273,25 +273,34 @@ void PriceSubscriber::FormatPrice(int64_t price, char * buffer, size_t size) con
 
 void PriceSubscriber::FormatAmount(int64_t amount, char * buffer, size_t size) const
 {
-    const char * currency = "";
-    char numericCurrency[12];
+    FormatValue(amount, buffer, size);
+    const size_t length = strlen(buffer);
+    snprintf(buffer + length, size - length, "%s", CurrencySuffix());
+}
+
+const char * PriceSubscriber::CurrencySuffix() const
+{
+    static char numericCurrency[12];
     switch (mCurrency)
     {
     case 826:
-        currency = " GBP";
-        break;
+        return " GBP";
     case 978:
-        currency = " EUR";
-        break;
+        return " EUR";
     case 840:
-        currency = " USD";
-        break;
+        return " USD";
     default:
+        if (!mHasCurrency)
+        {
+            return "";
+        }
         snprintf(numericCurrency, sizeof(numericCurrency), " (%u)", mCurrency);
-        currency = mHasCurrency ? numericCurrency : "";
-        break;
+        return numericCurrency;
     }
+}
 
+void PriceSubscriber::FormatValue(int64_t amount, char * buffer, size_t size) const
+{
     uint8_t decimals = mHasCurrency ? std::min<uint8_t>(mDecimalPoints, 9) : 0;
     uint64_t scale   = 1;
     for (uint8_t i = 0; i < decimals; i++)
@@ -306,12 +315,26 @@ void PriceSubscriber::FormatAmount(int64_t amount, char * buffer, size_t size) c
 
     if (decimals == 0)
     {
-        snprintf(buffer, size, "%s%lu%s", amount < 0 ? "-" : "", whole, currency);
+        snprintf(buffer, size, "%s%lu", amount < 0 ? "-" : "", whole);
     }
     else
     {
-        snprintf(buffer, size, "%s%lu.%0*lu%s", amount < 0 ? "-" : "", whole, static_cast<int>(decimals), frac, currency);
+        snprintf(buffer, size, "%s%lu.%0*lu", amount < 0 ? "-" : "", whole, static_cast<int>(decimals), frac);
     }
+}
+
+void PriceSubscriber::FormatUnit(char * buffer, size_t size) const
+{
+    // The currency without its leading space, e.g. "GBP/kWh".
+    const char * currency = CurrencySuffix();
+    snprintf(buffer, size, "%s%s", currency[0] == ' ' ? currency + 1 : currency, mTariffUnitKVAh ? "/kVAh" : "/kWh");
+}
+
+const char * PriceSubscriber::ShortLevelName(int16_t level)
+{
+    // The levels the price server uses, short enough to sit beside a price.
+    static const char * const kShortLevels[] = { "V.Low", "Low", "Med", "High", "V.High" };
+    return level >= 0 && level < static_cast<int16_t>(MATTER_ARRAY_SIZE(kShortLevels)) ? kShortLevels[level] : "?";
 }
 
 void PriceSubscriber::FormatCurrentPrice(char * buffer, size_t size) const

@@ -28,6 +28,7 @@ public:
         kReadyBy,       // When the program must be ready, on a timeline of the next day
         kOptimizing,    // Waiting a few seconds for an energy manager to move a scheduled start
         kSmartStart,    // When a scheduled start will begin and what it saves, with Cancel
+        kPricing,       // The current and future prices, opened from Settings
     };
 
     // A stretch of the Ready By timeline, in seconds from now.
@@ -39,11 +40,22 @@ public:
 
     static constexpr uint8_t kMaxCheapSpans = 12;
 
+    // One row of a list, with optional text at the right.
+    struct MenuLine
+    {
+        char left[24]  = "";
+        char right[10] = "";
+    };
+
+    // The price rows that fit on the Pricing page at once.
+    static constexpr uint8_t kMaxPriceLines = 4;
+
     // The rows on the Settings page, and on the Energy Mgmt page.
     enum SettingsItem : uint8_t
     {
         kSettingsCommissioning,
         kSettingsEnergy,
+        kSettingsPricing,
         kSettingsBack,
         kSettingsItemCount,
     };
@@ -83,6 +95,17 @@ public:
         TimelineSpan plannedRun;
 
         uint8_t selectedMenuItem = 0; // On kSettings and kEnergyMenu
+
+        const char * clockText      = ""; // On kSettings: the time, e.g. "14:05 UTC"
+        const char * pricingSummary = ""; // On kSettings: the current price level, or "None"
+
+        // On kPricing: the visible rows, which is selected, and where they are in the whole list.
+        const char * priceUnit       = "";
+        const MenuLine * priceLines  = nullptr;
+        uint8_t priceLineCount       = 0;
+        uint8_t priceSelectedLine    = 0;
+        uint8_t priceListCount       = 0;
+        uint8_t priceListTop         = 0;
 
         uint8_t optimizingDots  = 1;  // On kOptimizing
         const char * savingText = ""; // On kReadyBy and kSmartStart
