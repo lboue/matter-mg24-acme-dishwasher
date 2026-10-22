@@ -18,6 +18,7 @@ quality: experimental
 sdk:
   id: simplicity_sdk
   version: 2026.6.2
+  vendor: silabs
 
 sdk_extension:
   - id: matter
@@ -163,6 +164,8 @@ define:
     value: SL_GPIO_PORT_B
   - name: ROTARY_ENCODER_SW_PIN
     value: "5"
+  - name: ROTARY_ENCODER_SW_SHARES_LED0
+    value: "0"
 
 configuration:
   - name: SL_OPENTHREAD_ENABLE_APP_TASK
